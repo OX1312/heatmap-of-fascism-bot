@@ -1,1 +1,8 @@
-
+{
+  "instance_url": "https://mastodon.social",
+  "access_token": "PASTE_TOKEN_HERE",
+  "hashtag": "stickerreport",
+  "user_agent": "HeatmapOfFascismBot/0.1",
+  "allowed_reviewers": ["HeatmapofFascism"],
+  "accuracy_m": 25
+}
