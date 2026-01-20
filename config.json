@@ -1,6 +1,6 @@
 {
   "instance_url": "https://mastodon.social",
-  "access_token": "MA-ir_4a17qP_7kgkX_2upsQ3zPD9GHuH0ubgnyForQ",
+
   "user_agent": "HeatmapOfFascismBot/0.1",
 
   "hashtags": {
@@ -12,5 +12,9 @@
     "HeatmapofFascism"
   ],
 
-  "accuracy_m": 25
+  "accuracy": {
+    "intersection_m": 10,
+    "default_m": 25,
+    "fallback_m": 50
+  }
 }
