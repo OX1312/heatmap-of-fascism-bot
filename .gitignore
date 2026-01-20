@@ -1,0 +1,7 @@
+config.json
+pending.json
+cache_geocode.json
+reports.geojson
+__pycache__/
+*.pyc
+.DS_Store
