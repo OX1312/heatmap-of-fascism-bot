@@ -1,0 +1,1 @@
+# heatmap-of-fascism-bot
