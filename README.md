@@ -1,123 +1,74 @@
 # Heatmap of Fascism
 
 Heatmap of Fascism documents fascist sticker propaganda in public space.
-Reports are submitted via Mastodon, reviewed, and mapped to show where stickers appear, persist, or are removed over time.
+Reports are submitted via Mastodon, reviewed, and mapped worldwide to reveal hotspots, persistence, and removals over time.
 
-## How to submit a report
+## Submit a report (Mastodon)
 
-A valid report must include:
-• one photo of the sticker
-• one location:
-  – coordinates (lat, lon)
-  – OR street + city
-  – OR street crossing + city
+A report is processed only if it contains:
 
-Optional:
-• sticker type (e.g. party, symbol, slogan)
-• date (auto if omitted)
+1) **One photo** (sticker image)
+2) **One location** (choose one):
+   - **Coordinates:** `lat, lon`
+   - **Street + city:** `Street 12, City`
+   - **Crossing + city:** `StreetA / StreetB, City`
+
+Optional (recommended):
+- **Sticker type:** `#sticker_type: <text>` (e.g. party / symbol / slogan)
+- Notes in plain text
 
 ## Hashtags
 
-Everyone:
-#stickerreport
+- **Everyone:** `#sticker_report`  (sticker present)
+- **Confirmed removal:** `#sticker_removed` (sticker removed)
 
-Members only (confirmed):
-#stickerremoved
+Only **reviewed** reports appear on the public map.
 
-Removal reports are only counted if confirmed by this account or submitted by a trusted contributor.
+## Review (anti-spam)
+
+A report becomes public only after a **Like/Favourite** by:
+- the project account, or
+- a reviewer in the allowlist.
 
 ## Processing rules
 
-• reports without a photo or location cannot be processed
-• locations are normalized to coordinates (10–50 m accuracy)
-• repeated reports update the same spot over time
-• each spot tracks first_seen, last_seen, status, and report count
+- Reports without **photo + location** are ignored.
+- All locations are normalized to coordinates with an estimated accuracy **10–50 m**.
+- Repeated reports update the **same spot** (no duplicate spam).
+
+Each spot stores:
+- `first_seen`, `last_seen`, `seen_count`
+- `status`: `present` | `removed` | `stale`
+
+### Status logic (map colors)
+
+- **present** → **orange/red**
+- **removed** → **green**
+- **stale** → **gray** (no confirmation for **30 days**)
+
+`last_seen` updates on every reviewed report.
+If a spot is `present` and not re-confirmed for **30 days**, it becomes `stale`.
+
+### Accuracy → circle size
+
+Circle radius visualizes **location uncertainty**:
+- **10–15 m**: explicit coordinates (GPS)
+- **~25 m**: street/crossing geocoded
+- **up to 50 m**: vague/low-confidence location
 
 ## Map output
 
-The public map shows:
-• individual reports
-• heatmaps of active locations
-• status over time (present / removed / unknown)
-
-All reports are reviewed before appearing on the map.
-
-PROJECT: HEATMAP OF FASCISM
-
-KURZBESCHREIBUNG
-Heatmap of Fascism dokumentiert faschistische Sticker-Propaganda im öffentlichen Raum.
-Meldungen werden über Mastodon gesammelt, geprüft und weltweit auf einer Karte visualisiert,
-um Hotspots, Verbreitung und Entfernung über Zeit sichtbar zu machen.
-
-
-TECHNISCHE BESCHREIBUNG
-
-Input (Mastodon):
-• 1 Foto
-• 1 Ort:
-  – Koordinaten
-  – oder Straße + Stadt
-  – oder Straßenkreuzung + Stadt
-• Hashtag:
-  – #stickerreport (Sticker vorhanden, alle)
-  – #stickerremoved (Sticker entfernt, nur bestätigt)
-
-Verarbeitung:
-• Mastodon API Ingest
-• Review via Favorit durch Projekt-Account / Allowlist
-• Geocoding (OpenStreetMap)
-• Ortsnormalisierung (10–50 m Genauigkeit)
-• Duplikat-Erkennung (Radius, später Hash/OCR)
-• Speicherung als GeoJSON (Single Source of Truth)
-
-Visualisierung:
-• OpenStreetMap / uMap
-• Punkte + Heatmap
-• Status: present / removed / unknown
-• Zeitfelder: first_seen, last_seen, report_count
-
-Prinzipien:
-• öffentlich und reproduzierbar
-• niedrige Einstiegshürde
-• keine automatischen politischen Urteile
-• datenschutzbewusst
-
-
-MISSION
-• Sichtbarmachen faschistischer Propaganda im öffentlichen Raum
-• Erkennen von Hotspots und Mustern
-• Dokumentation von Persistenz und Entfernung
-• Unterstützung zivilgesellschaftlicher Gegenmaßnahmen
-• Transparenz statt Eskalation
-
-
-ROADMAP
-
-Jetzt:
-• Stabiler Ingest
-• Review-Workflow
-• Öffentliche Karte
-
-Als Nächstes:
-• Duplikat-Clustering
-• Status-Übergänge über Zeit
-• Trusted-Contributor-Modell
-
-Später:
-• OCR (Tesseract)
-• Sticker-Typ-Vorschläge
-• Weitere Karten-Layer
-• Analyse- und Export-Ansichten
-
+- Public GeoJSON (`reports.geojson`) as single source of truth
+- OpenStreetMap / uMap visualization:
+  - points (with uncertainty circles)
+  - heatmap of active locations
+  - status over time
 
 ## Local secrets (required)
 
-This project requires a local `secrets.json` file which is NOT committed.
+This project requires a local `secrets.json` (NOT committed):
 
-Create it locally with:
-
+```json
 {
   "access_token": "<your Mastodon access token>"
 }
-
-The file is ignored by git on purpose.
