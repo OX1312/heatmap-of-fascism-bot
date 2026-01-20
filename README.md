@@ -108,3 +108,16 @@ Später:
 • Sticker-Typ-Vorschläge
 • Weitere Karten-Layer
 • Analyse- und Export-Ansichten
+
+
+## Local secrets (required)
+
+This project requires a local `secrets.json` file which is NOT committed.
+
+Create it locally with:
+
+{
+  "access_token": "<your Mastodon access token>"
+}
+
+The file is ignored by git on purpose.
