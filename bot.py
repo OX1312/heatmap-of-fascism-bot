@@ -534,7 +534,6 @@ def main():
             continue
 
         ok = is_approved_author = ((st.get("account") or {}).get("acct") or "").split("@")[0].lower()
-        trusted_author = author in trusted_set
         ok = is_approved_by_fav(cfg, str(item["status_id"]))
         if ok:
             new_status = ("removed" if item.get("event") == "removed" else "present")
