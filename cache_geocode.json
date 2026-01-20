@@ -1,1 +1,1 @@
-
+echo "{}" > cache_geocode.json
