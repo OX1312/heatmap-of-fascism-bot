@@ -7,12 +7,18 @@
 #
 # Output:
 # - reports.geojson = single source of truth (FeatureCollection)
-# - Each published feature follows the fixed "product schema" (no example objects)
+# - Each published feature follows the fixed "product schema"
+#
+# Step 2 implemented:
+# - Dupe matching on publish:
+#   If distance <= max(existing.radius_m, new.radius_m) AND sticker_type matches OR one is "unknown"
+#   => update existing feature (last_seen, seen_count, status, removed_at, media)
 
 import json
 import re
 import time
 import pathlib
+import math
 from typing import Optional, Tuple, Dict, Any, List, Iterable
 from datetime import datetime, timezone
 
@@ -77,7 +83,6 @@ def today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 def iso_date_from_created_at(created_at: Optional[str]) -> str:
-    # Mastodon created_at is ISO8601; we only keep YYYY-MM-DD
     if not created_at:
         return today_iso()
     return created_at[:10]
@@ -88,7 +93,6 @@ def strip_html(s: str) -> str:
     return s.strip()
 
 def normalize_query(q: str) -> str:
-    # worldwide, but reduce fragile glyphs for OSM matching
     q = q.replace("ß", "ss")
     q = q.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
     q = q.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
@@ -106,6 +110,18 @@ def parse_sticker_type(text: str) -> str:
         return "unknown"
     t = m.group(1).strip()
     return t if t else "unknown"
+
+def norm_type(s: str) -> str:
+    s = (s or "unknown").strip().lower()
+    return s if s else "unknown"
+
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
 
 
 # =========================
@@ -159,10 +175,6 @@ def geocode_nominatim(query: str, user_agent: str) -> Optional[Tuple[float, floa
     return float(data[0]["lat"]), float(data[0]["lon"])
 
 def overpass_intersection(city: str, a: str, b: str, user_agent: str) -> Optional[Tuple[float, float]]:
-    """
-    Exact intersection via Overpass. Returns first shared node (lat, lon).
-    Robust: tries multiple endpoints. Never raises.
-    """
     q = f"""
 [out:json][timeout:25];
 area["name"="{city}"]["boundary"="administrative"]->.a;
@@ -208,7 +220,6 @@ def geocode_query_worldwide(query: str, user_agent: str) -> Tuple[Optional[Tuple
         except Exception:
             pass
 
-        # fallback: geocode one street in city
         try:
             res = geocode_nominatim(f"{a}, {city}", user_agent)
             if res:
@@ -291,10 +302,6 @@ def reports_id_set(reports: Dict[str, Any]) -> set:
     return ids
 
 def apply_stale_rule(reports: Dict[str, Any], stale_after_days: int) -> int:
-    """
-    Product rule: present -> stale if not confirmed for N days.
-    We only change status, never delete features.
-    """
     from datetime import date
 
     def parse_date(s: str) -> Optional[date]:
@@ -308,14 +315,12 @@ def apply_stale_rule(reports: Dict[str, Any], stale_after_days: int) -> int:
 
     for f in reports.get("features", []):
         p = f.get("properties") or {}
-        status = p.get("status")
-        if status != "present":
+        if p.get("status") != "present":
             continue
         last_seen = parse_date(str(p.get("last_seen", "")))
         if not last_seen:
             continue
-        delta = (today - last_seen).days
-        if delta >= stale_after_days:
+        if (today - last_seen).days >= stale_after_days:
             p["status"] = "stale"
             p["stale_after_days"] = int(stale_after_days)
             changed += 1
@@ -326,20 +331,19 @@ def make_product_feature(
     *,
     item_id: str,
     source_url: str,
-    status: str,
+    status: str,  # present | removed | stale
     sticker_type: str,
     created_date: str,
     lat: float,
     lon: float,
     accuracy_m: int,
     radius_m: int,
-    geocode_method: str,
+    geocode_method: str,  # gps | nominatim | overpass | fallback
     location_text: str,
     media: List[str],
     stale_after_days: int,
     removed_at: Optional[str],
 ) -> Dict[str, Any]:
-    # FINAL PRODUCT SCHEMA (no optional omissions)
     return {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
@@ -347,19 +351,19 @@ def make_product_feature(
             "id": item_id,
             "source": source_url,
 
-            "status": status,                 # present | removed | stale
-            "sticker_type": sticker_type,     # string or "unknown"
+            "status": status,
+            "sticker_type": sticker_type,
 
             "first_seen": created_date,
             "last_seen": created_date,
             "seen_count": 1,
 
-            "removed_at": removed_at,         # date or null
+            "removed_at": removed_at,
             "stale_after_days": int(stale_after_days),
 
             "accuracy_m": int(accuracy_m),
             "radius_m": int(radius_m),
-            "geocode_method": geocode_method, # gps | nominatim | overpass | fallback
+            "geocode_method": geocode_method,
 
             "location_text": location_text,
             "media": media,
@@ -393,7 +397,6 @@ def main():
 
     cfg["access_token"] = secrets["access_token"]
 
-    # product constants
     stale_after_days = int(cfg.get("stale_after_days", 30))
     acc_cfg = cfg.get("accuracy") or {}
     ACC_INTERSECTION = int(acc_cfg.get("intersection_m", 10))
@@ -405,7 +408,6 @@ def main():
     reports = load_reports()
     reports_ids = reports_id_set(reports)
 
-    # Dedupe pending by source URL
     pending_by_source = {p.get("source"): p for p in pending if p.get("source")}
 
     added_pending = 0
@@ -437,19 +439,18 @@ def main():
         sticker_type = parse_sticker_type(text)
 
         geocode_method = "gps"
-        accuracy_m = ACC_INTERSECTION  # will be overwritten
-        radius_m = ACC_INTERSECTION
+        accuracy_m = ACC_DEFAULT
+        radius_m = ACC_DEFAULT
         location_text = ""
         removed_at: Optional[str] = None
 
         if coords:
             lat, lon = coords
             geocode_method = "gps"
-            accuracy_m = ACC_INTERSECTION  # you said 10–15m for coords; we store 10 by default
+            accuracy_m = ACC_INTERSECTION
             radius_m = ACC_INTERSECTION
             location_text = f"{lat}, {lon}"
         else:
-            # query route
             location_text = q or ""
             q_norm = normalize_query(q or "")
 
@@ -485,13 +486,8 @@ def main():
                     "q_norm": q_norm
                 }
 
-        # event -> initial status
         if event == "removed":
-            status = "removed"
             removed_at = created_date
-        else:
-            status = "present"
-            removed_at = None
 
         media_urls = [
             a.get("url")
@@ -503,7 +499,7 @@ def main():
             "id": item_id,
             "status_id": status_id,
             "status": "PENDING",
-            "event": event,
+            "event": event,  # present/removed
             "tag": tag,
             "source": url,
             "created_at": st.get("created_at"),
@@ -527,7 +523,7 @@ def main():
         pending_by_source[url] = item
         added_pending += 1
 
-    # ---- publish approved -> reports.geojson ----
+    # ---- publish approved -> reports.geojson (with dupe matching) ----
     still_pending: List[Dict[str, Any]] = []
     for item in pending:
         if item.get("status") != "PENDING":
@@ -539,10 +535,13 @@ def main():
 
         ok = is_approved_by_fav(cfg, str(item["status_id"]))
         if ok:
-            feat = make_product_feature(
+            new_status = ("removed" if item.get("event") == "removed" else "present")
+            new_removed_at = item.get("removed_at", None)
+
+            new_feat = make_product_feature(
                 item_id=item_id,
                 source_url=str(item["source"]),
-                status=("removed" if item.get("event") == "removed" else "present"),
+                status=new_status,
                 sticker_type=str(item.get("sticker_type") or "unknown"),
                 created_date=str(item.get("created_date") or today_iso()),
                 lat=float(item["lat"]),
@@ -553,17 +552,78 @@ def main():
                 location_text=str(item.get("location_text") or ""),
                 media=list(item.get("media") or []),
                 stale_after_days=int(stale_after_days),
-                removed_at=item.get("removed_at", None),
+                removed_at=new_removed_at,
             )
-            reports["features"].append(feat)
-            reports_ids.add(item_id)
-            published += 1
+
+            new_p = new_feat["properties"]
+            new_lat = float(item["lat"])
+            new_lon = float(item["lon"])
+            new_r = int(new_p.get("radius_m") or new_p.get("accuracy_m") or ACC_DEFAULT)
+            new_type = norm_type(new_p.get("sticker_type"))
+
+            matched = False
+
+            for f in reports["features"]:
+                p = f.get("properties") or {}
+                coords = (f.get("geometry") or {}).get("coordinates") or []
+                if len(coords) != 2:
+                    continue
+
+                ex_lon, ex_lat = float(coords[0]), float(coords[1])
+                ex_r = int(p.get("radius_m") or p.get("accuracy_m") or ACC_DEFAULT)
+                ex_type = norm_type(p.get("sticker_type"))
+
+                # type rule: must match OR one side is unknown
+                if not (new_type == "unknown" or ex_type == "unknown" or new_type == ex_type):
+                    continue
+
+                dist = haversine_m(new_lat, new_lon, ex_lat, ex_lon)
+                if dist <= max(ex_r, new_r):
+                    # UPDATE existing feature
+                    created_date = str(new_p.get("last_seen") or new_p.get("first_seen") or today_iso())
+
+                    # first_seen stays
+                    p["last_seen"] = created_date
+                    p["seen_count"] = int(p.get("seen_count", 1)) + 1
+
+                    # if it was stale but new report confirms, bring back
+                    if new_status == "present":
+                        p["status"] = "present"
+                        p["removed_at"] = None
+                    elif new_status == "removed":
+                        p["status"] = "removed"
+                        p["removed_at"] = new_removed_at
+
+                    # if existing type unknown but new provides something, promote it
+                    if ex_type == "unknown" and new_type != "unknown":
+                        p["sticker_type"] = new_p.get("sticker_type")
+
+                    # keep the tighter radius if we have more precise info
+                    p["accuracy_m"] = min(int(p.get("accuracy_m", ex_r)), int(new_p.get("accuracy_m", new_r)))
+                    p["radius_m"] = min(int(p.get("radius_m", ex_r)), int(new_p.get("radius_m", new_r)))
+
+                    # merge media without duplicates
+                    media = list(p.get("media") or [])
+                    seen = set(media)
+                    for u in list(new_p.get("media") or []):
+                        if u and u not in seen:
+                            media.append(u)
+                            seen.add(u)
+                    p["media"] = media
+
+                    matched = True
+                    published += 1
+                    break
+
+            if not matched:
+                reports["features"].append(new_feat)
+                reports_ids.add(item_id)
+                published += 1
         else:
             still_pending.append(item)
 
         time.sleep(DELAY_FAV_CHECK)
 
-    # apply stale rule globally each run (present -> stale after 30d)
     apply_stale_rule(reports, stale_after_days)
 
     save_json(CACHE_PATH, cache)
