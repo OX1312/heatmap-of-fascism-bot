@@ -1,19 +1,4 @@
 {
   "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [13.404954, 52.520008]
-      },
-      "properties": {
-        "id": "exif-001",
-        "date": "2026-01-20",
-        "source": "exif",
-        "notes": "imported from photo (EXIF GPS)",
-        "accuracy_m": 25
-      }
-    }
-  ]
+  "features": []
 }
