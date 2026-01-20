@@ -67,6 +67,11 @@ def strip_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", "", s)
     return s.strip()
 
+def normalize_query(q: str) -> str:
+    q = q.replace("ß", "ss")
+    q = q.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    q = q.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
+    return q
 
 def has_image(attachments: List[Dict[str, Any]]) -> bool:
     for a in attachments or []:
@@ -252,7 +257,8 @@ def main():
             if q in cache:
                 coords = (cache[q]["lat"], cache[q]["lon"])
             else:
-                coords2 = geocode_nominatim(q, cfg["user_agent"])
+                q_norm = normalize_query(q)
+                coords2 = geocode_nominatim(q_norm, cfg["user_agent"])
                 time.sleep(1.0)  # be polite to nominatim
                 if not coords2:
                     continue
