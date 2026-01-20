@@ -253,7 +253,7 @@ def main():
                 pending.append({"status_id": sid, "url": url})
                 continue
 
-<<<<<<< Updated upstream
+
             reports["features"].append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
@@ -277,7 +277,6 @@ def main():
             })
             published += 1
         time.sleep(DELAY_TAG)
-=======
         ok = is_approved_author = ((st.get("account") or {}).get("acct") or "").split("@")[0].lower()
         ok = is_approved_by_fav(cfg, str(item["status_id"]))
         if ok:
@@ -371,7 +370,7 @@ def main():
         time.sleep(DELAY_FAV_CHECK)
 
     apply_stale_rule(reports, stale_after_days)
->>>>>>> Stashed changes
+
 
     save_json(REPORTS_PATH, reports)
     save_json(CACHE_PATH, cache)
