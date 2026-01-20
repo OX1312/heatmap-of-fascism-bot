@@ -5,3 +5,4 @@ reports.geojson
 __pycache__/
 *.pyc
 .DS_Store
+trusted_accounts.json
