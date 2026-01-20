@@ -193,7 +193,7 @@ def make_feature(item: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
             "source": item["source"],
             "status": item.get("event", "present"),
             "notes": item.get("notes") or "",
-            "accuracy_m": int(cfg.get("accuracy_m", 25)),
+            "accuracy_m": int(item.get("accuracy_m", cfg.get("accuracy_m", 25))),
             "media": item.get("media", []),
             "tag": item.get("tag") or "",
         },
