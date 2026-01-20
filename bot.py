@@ -253,6 +253,7 @@ def main():
                 pending.append({"status_id": sid, "url": url})
                 continue
 
+<<<<<<< Updated upstream
             reports["features"].append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
@@ -276,6 +277,101 @@ def main():
             })
             published += 1
         time.sleep(DELAY_TAG)
+=======
+        ok = is_approved_author = ((st.get("account") or {}).get("acct") or "").split("@")[0].lower()
+        ok = is_approved_by_fav(cfg, str(item["status_id"]))
+        if ok:
+            new_status = ("removed" if item.get("event") == "removed" else "present")
+            new_removed_at = item.get("removed_at", None)
+
+            new_feat = make_product_feature(
+                item_id=item_id,
+                source_url=str(item["source"]),
+                status=new_status,
+                sticker_type=str(item.get("sticker_type") or "unknown"),
+                created_date=str(item.get("created_date") or today_iso()),
+                lat=float(item["lat"]),
+                lon=float(item["lon"]),
+                accuracy_m=int(item.get("accuracy_m", ACC_DEFAULT)),
+                radius_m=int(item.get("radius_m", item.get("accuracy_m", ACC_DEFAULT))),
+                geocode_method=str(item.get("geocode_method") or "nominatim"),
+                location_text=str(item.get("location_text") or ""),
+                media=list(item.get("media") or []),
+                stale_after_days=int(stale_after_days),
+                removed_at=new_removed_at,
+            )
+
+            new_p = new_feat["properties"]
+            new_lat = float(item["lat"])
+            new_lon = float(item["lon"])
+            new_r = int(new_p.get("radius_m") or new_p.get("accuracy_m") or ACC_DEFAULT)
+            new_type = norm_type(new_p.get("sticker_type"))
+
+            matched = False
+
+            for f in reports["features"]:
+                p = f.get("properties") or {}
+                coords = (f.get("geometry") or {}).get("coordinates") or []
+                if len(coords) != 2:
+                    continue
+
+                ex_lon, ex_lat = float(coords[0]), float(coords[1])
+                ex_r = int(p.get("radius_m") or p.get("accuracy_m") or ACC_DEFAULT)
+                ex_type = norm_type(p.get("sticker_type"))
+
+                # type rule: must match OR one side is unknown
+                if not (new_type == "unknown" or ex_type == "unknown" or new_type == ex_type):
+                    continue
+
+                dist = haversine_m(new_lat, new_lon, ex_lat, ex_lon)
+                if dist <= max(ex_r, new_r):
+                    # UPDATE existing feature
+                    created_date = str(new_p.get("last_seen") or new_p.get("first_seen") or today_iso())
+
+                    # first_seen stays
+                    p["last_seen"] = created_date
+                    p["seen_count"] = int(p.get("seen_count", 1)) + 1
+
+                    # if it was stale but new report confirms, bring back
+                    if new_status == "present":
+                        p["status"] = "present"
+                        p["removed_at"] = None
+                    elif new_status == "removed":
+                        p["status"] = "removed"
+                        p["removed_at"] = new_removed_at
+
+                    # if existing type unknown but new provides something, promote it
+                    if ex_type == "unknown" and new_type != "unknown":
+                        p["sticker_type"] = new_p.get("sticker_type")
+
+                    # keep the tighter radius if we have more precise info
+                    p["accuracy_m"] = min(int(p.get("accuracy_m", ex_r)), int(new_p.get("accuracy_m", new_r)))
+                    p["radius_m"] = min(int(p.get("radius_m", ex_r)), int(new_p.get("radius_m", new_r)))
+
+                    # merge media without duplicates
+                    media = list(p.get("media") or [])
+                    seen = set(media)
+                    for u in list(new_p.get("media") or []):
+                        if u and u not in seen:
+                            media.append(u)
+                            seen.add(u)
+                    p["media"] = media
+
+                    matched = True
+                    published += 1
+                    break
+
+            if not matched:
+                reports["features"].append(new_feat)
+                reports_ids.add(item_id)
+                published += 1
+        else:
+            still_pending.append(item)
+
+        time.sleep(DELAY_FAV_CHECK)
+
+    apply_stale_rule(reports, stale_after_days)
+>>>>>>> Stashed changes
 
     save_json(REPORTS_PATH, reports)
     save_json(CACHE_PATH, cache)
