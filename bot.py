@@ -122,7 +122,7 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
         a = m.group(1).strip()
         b = m.group(2).strip()
         city = m.group(3).strip()
-        return None, f"{a} & {b}, {city}"
+        return None, f"intersection of {a} and {b}, {city}"
 
     return None, None
 
