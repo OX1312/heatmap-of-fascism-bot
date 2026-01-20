@@ -1,4 +1,19 @@
 {
   "type": "FeatureCollection",
-  "features": []
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [LON, LAT]
+      },
+      "properties": {
+        "id": "exif-001",
+        "date": "2026-01-20",
+        "source": "exif",
+        "notes": "imported from photo (EXIF GPS)",
+        "accuracy_m": 25
+      }
+    }
+  ]
 }
