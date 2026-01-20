@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # Heatmap of Fascism - Minimal Ingest + Review via FAV (multi-hashtag, worldwide, robust)
 #
+# PRODUCT SETUP
+# - config.json (tracked): rules + hashtags + reviewers + accuracy targets
+# - secrets.json (local, NOT tracked): {"access_token":"..."}  (gitignored)
+#
 # FEATURES
 # - Multiple hashtags via config.json:  {"hashtags": {"sticker_report":"present","sticker_removed":"removed"}}
 # - Requires: image + location (coords OR "Street 12, City" OR "StreetA / StreetB, City")
@@ -8,12 +12,6 @@
 # - Cache geocoding in cache_geocode.json
 # - Queue in pending.json
 # - Publish to reports.geojson when favourited by allowed reviewer(s)
-#
-# FILES (same directory as this script)
-# - config.json
-# - cache_geocode.json   (must be valid JSON object: {})
-# - pending.json         (must be valid JSON array: [])
-# - reports.geojson      (auto-created FeatureCollection)
 
 import json
 import re
@@ -28,6 +26,7 @@ import requests
 # =========================
 ROOT = pathlib.Path(__file__).resolve().parent
 CFG_PATH = ROOT / "config.json"
+SECRETS_PATH = ROOT / "secrets.json"
 CACHE_PATH = ROOT / "cache_geocode.json"
 PENDING_PATH = ROOT / "pending.json"
 REPORTS_PATH = ROOT / "reports.geojson"
@@ -128,7 +127,6 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
     m = RE_CROSS.match(candidate)
     if m:
         a, b, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-        # key point: unify crossing format for downstream logic
         return None, f"intersection of {a} and {b}, {city}"
 
     return None, None
@@ -150,10 +148,8 @@ def overpass_intersection(city: str, a: str, b: str, user_agent: str) -> Optiona
     """
     Exact street intersection via Overpass.
     Returns (lat, lon) for a shared node of both named street ways inside the admin area of 'city'.
-    Robust: tries multiple endpoints, never raises.
+    Robust: tries multiple endpoints, never raises (fails open to fallback).
     """
-    # IMPORTANT: this relies on OSM "boundary=administrative" area named exactly like 'city'
-    # If city is ambiguous globally, Overpass may pick the "wrong" one or none.
     q = f"""
 [out:json][timeout:25];
 area["name"="{city}"]["boundary"="administrative"]->.a;
@@ -182,9 +178,9 @@ def geocode_query_worldwide(query: str, user_agent: str) -> Tuple[Optional[Tuple
     """
     Returns (coords, accuracy_m, method)
       method:
-        "overpass"  -> 10 m
-        "nominatim" -> 25 m
-        "fallback"  -> 50 m
+        "overpass"  -> intersection_m
+        "nominatim" -> default_m
+        "fallback"  -> fallback_m
     """
     m = RE_INTERSECTION.match(query)
     if m:
@@ -306,13 +302,24 @@ def main():
     if not cfg:
         raise SystemExit("Missing config.json")
 
-    # load / ensure
+    secrets = load_json(SECRETS_PATH, None)
+    if not secrets or not secrets.get("access_token"):
+        raise SystemExit('Missing secrets.json (needs: {"access_token":"..."})')
+
+    # merge secret into cfg for API calls
+    cfg["access_token"] = secrets["access_token"]
+
+    # pull accuracy targets from config (product-level)
+    acc_cfg = cfg.get("accuracy") or {}
+    ACC_INTERSECTION = int(acc_cfg.get("intersection_m", 10))
+    ACC_DEFAULT = int(acc_cfg.get("default_m", 25))
+    ACC_FALLBACK = int(acc_cfg.get("fallback_m", 50))
+
     cache: Dict[str, Any] = load_json(CACHE_PATH, {})
     pending: List[Dict[str, Any]] = load_json(PENDING_PATH, [])
     ensure_reports_file()
     reports = load_json(REPORTS_PATH, {"type": "FeatureCollection", "features": []})
 
-    # fast sets
     reports_ids = set((f.get("properties") or {}).get("id") for f in reports.get("features", []))
     pending_by_source = {p.get("source"): p for p in pending if p.get("source")}
 
@@ -326,7 +333,7 @@ def main():
         if not status_id or not url:
             continue
 
-        # dedupe: same mastodon URL already in pending (or already published)
+        # dedupe: same mastodon URL already pending OR already published
         if url in pending_by_source:
             continue
         if f"masto-{status_id}" in reports_ids:
@@ -342,23 +349,30 @@ def main():
         if not coords and not q:
             continue  # must have coords or parseable address/crossing
 
-        accuracy_m = int(cfg.get("accuracy_m", 25))
+        accuracy_m = ACC_DEFAULT
         method = ""
 
         if not coords and q:
-            # cache by original query string (human readable)
             if q in cache and "lat" in cache[q] and "lon" in cache[q]:
                 coords = (float(cache[q]["lat"]), float(cache[q]["lon"]))
-                accuracy_m = int(cache[q].get("accuracy_m", accuracy_m))
+                accuracy_m = int(cache[q].get("accuracy_m", ACC_DEFAULT))
                 method = str(cache[q].get("method", "cache"))
             else:
                 q_norm = normalize_query(q)
                 coords2, acc_m, mth = geocode_query_worldwide(q_norm, cfg["user_agent"])
-                time.sleep(DELAY_NOMINATIM)  # be polite (also covers fallback nominatim calls)
+                time.sleep(DELAY_NOMINATIM)
                 if not coords2:
                     continue
                 coords = coords2
-                accuracy_m = acc_m
+                # translate method to product accuracies
+                if mth == "overpass":
+                    accuracy_m = ACC_INTERSECTION
+                elif mth == "nominatim":
+                    accuracy_m = ACC_DEFAULT
+                elif mth == "fallback":
+                    accuracy_m = ACC_FALLBACK
+                else:
+                    accuracy_m = ACC_DEFAULT
                 method = mth
                 cache[q] = {
                     "lat": coords[0],
@@ -409,7 +423,6 @@ def main():
 
         time.sleep(DELAY_FAV_CHECK)
 
-    # save
     save_json(CACHE_PATH, cache)
     save_json(PENDING_PATH, still_pending)
     save_json(REPORTS_PATH, reports)
