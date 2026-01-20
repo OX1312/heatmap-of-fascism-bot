@@ -4,8 +4,8 @@
   "user_agent": "HeatmapOfFascismBot/0.1",
 
   "hashtags": {
-    "stickerreport": "present",
-    "stickerremoved": "removed"
+    "sticker_report": "present",
+    "sticker_removed": "removed"
   },
 
   "allowed_reviewers": [
