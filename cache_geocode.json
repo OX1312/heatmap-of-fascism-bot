@@ -1,1 +1,11 @@
-{}
+{
+  "intersection of Ratzeburger Allee and Kahlhorststraße, Lübeck": {
+    "lat": 53.8364566,
+    "lon": 10.7067179,
+    "ts": 1768940681,
+    "method": "fallback",
+    "accuracy_m": 50,
+    "radius_m": 50,
+    "q_norm": "intersection of Ratzeburger Allee and Kahlhorststrasse, Luebeck"
+  }
+}
