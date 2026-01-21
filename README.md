@@ -8,9 +8,9 @@ Reports are **manually reviewed** and then shown on a public map to visualize **
 **No passive scraping.** Only posts that intentionally report to the project are processed.
 
 ## Links
-- Map: https://umap.openstreetmap.de/de/map/heatmap_121255#6/52.194/11.646
-- Mastodon: https://mastodon.social/@HeatmapofFascism
-- Repo: https://github.com/OX1312/heatmap-of-fascism-bot
+- Map:         https://umap.openstreetmap.de/de/map/heatmap_121255#6/52.194/11.646
+- Mastodon:    https://mastodon.social/@HeatmapofFascism
+- Repo:        https://github.com/OX1312/heatmap-of-fascism-bot
 
 ## Report a sticker (Mastodon) — minimum requirements
 Your post must include:
