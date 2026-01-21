@@ -11,21 +11,50 @@
         ]
       },
       "properties": {
-        "id": "masto-115928685021623909-v2",
-        "source": "https://mastodon.social/@HeatmapofFascism/115928685021623909",
+        "id": "masto-115933093788529730",
+        "source": "https://mastodon.social/@HeatmapofFascism/115933093788529730",
         "status": "present",
         "sticker_type": "unknown",
-        "first_seen": "2026-01-20",
-        "last_seen": "2026-01-20",
-        "seen_count": 8,
+        "first_seen": "2026-01-21",
+        "last_seen": "2026-01-21",
+        "seen_count": 1,
         "removed_at": null,
         "stale_after_days": 30,
         "accuracy_m": 10,
         "radius_m": 10,
-        "geocode_method": "overpass",
-        "location_text": "intersection of Ratzeburger Allee and Kahlhorststraße, Lübeck",
+        "geocode_method": "gps",
+        "location_text": "53.8510526, 10.7029559",
         "media": [
-          "https://files.mastodon.social/media_attachments/files/115/927/410/797/745/395/original/f7d0c041533671aa.jpeg"
+          "https://files.mastodon.social/media_attachments/files/115/933/093/609/721/059/original/aad7157589c9de19.jpeg"
+        ],
+        "notes": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.7129018,
+          53.8743118
+        ]
+      },
+      "properties": {
+        "id": "masto-115933091867662922",
+        "source": "https://mastodon.social/@HeatmapofFascism/115933091867662922",
+        "status": "present",
+        "sticker_type": "make germany white again",
+        "first_seen": "2026-01-21",
+        "last_seen": "2026-01-21",
+        "seen_count": 1,
+        "removed_at": null,
+        "stale_after_days": 30,
+        "accuracy_m": 25,
+        "radius_m": 25,
+        "geocode_method": "nominatim",
+        "location_text": "Arnimstraße 24, Lübeck",
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/933/091/662/689/013/original/75309b0366e5799e.jpeg"
         ],
         "notes": ""
       }

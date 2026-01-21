@@ -118,10 +118,30 @@ def iso_date_from_created_at(created_at: Optional[str]) -> str:
     return created_at[:10]
 
 def strip_html(s: str) -> str:
+    # Mastodon liefert HTML (<p>, </p>, <br>, Links/Mentions). Wir normalisieren das zu Zeilen.
+    s = s or ""
+    s = re.sub(r"</p>\s*<p[^>]*>", "\n", s, flags=re.IGNORECASE)
+    s = re.sub(r"</p>", "\n", s, flags=re.IGNORECASE)
     s = re.sub(r"<br\s*/?>", "\n", s, flags=re.IGNORECASE)
     s = re.sub(r"<[^>]+>", "", s)
+    s = re.sub(r"[ \t\f\v]+", " ", s)
+    s = re.sub(r"\n{2,}", "\n", s)
     return s.strip()
 
+
+def contains_required_mention(text: str, required_mentions) -> bool:
+    """True if text contains a mention like @HeatmapofFascism (case-insensitive)."""
+    t = (text or "")
+    for m in (required_mentions or []):
+        if not m:
+            continue
+        base = str(m).strip().lstrip("@").split("@")[0]
+        if not base:
+            continue
+        # Match @name or @name@instance anywhere (word boundary)
+        if re.search(rf"(?i)(?:^|\s)@{re.escape(base)}(?:@[-\w\.]+)?\b", t):
+            return True
+    return False
 def normalize_query(q: str) -> str:
     # Avoid fragile glyph mismatches in OSM search; keep worldwide
     q = q.replace("ß", "ss")
@@ -181,7 +201,7 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
     """
     Returns:
       (lat, lon) if coords found anywhere in text
-      OR a query string if address/crossing found in first non-hashtag line
+      OR a query string if address/crossing/street+city found in ANY non-hashtag line
       OR (None, None) if invalid
     """
     m = RE_COORDS.search(text)
@@ -189,38 +209,36 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
         return (float(m.group(1)), float(m.group(2))), None
 
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    candidate = None
+
+    def is_pure_mentions(ln: str) -> bool:
+        # "@user" or "@user @user2"
+        import re
+        return bool(re.fullmatch(r"(?:@\w+(?:@\w+)?)(?:\s+@\w+(?:@\w+)?)*", ln))
+
+    # Scan for the first line that looks like a location (skip hashtags + pure-mention lines)
     for ln in lines:
-        if ln.lower().startswith("#"):
+        low = ln.lower()
+        if low.startswith("#"):
             continue
-        candidate = ln
-        break
-    if not candidate:
-        # Fallback: messy one-line posts. Extract after Ort:/Location:/Place:
-        m2 = re.search(r"(?i)(ort|location|place)\s*:\s*(.+)", text)
-        if m2:
-            candidate = m2.group(2).strip()
-            # Cut off trailing mentions/hashtags glued to the same line
-            candidate = re.split(r"[@#]", candidate, maxsplit=1)[0].strip()
-        else:
-            return None, None
+        if low.startswith("@") and is_pure_mentions(ln):
+            continue
 
-    candidate = normalize_location_line(candidate)
+        candidate = normalize_location_line(ln)
 
-    m = RE_ADDRESS.match(candidate)
-    if m:
-        street, number, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-        return None, f"{street} {number}, {city}"
+        m = RE_ADDRESS.match(candidate)
+        if m:
+            street, number, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+            return None, f"{street} {number}, {city}"
 
-    m = RE_CROSS.match(candidate)
-    if m:
-        a, b, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-        return None, f"intersection of {a} and {b}, {city}"
+        m = RE_CROSS.match(candidate)
+        if m:
+            a, b, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+            return None, f"intersection of {a} and {b}, {city}"
 
-    m = RE_STREET_CITY.match(candidate)
-    if m:
-        street, city = m.group(1).strip(), m.group(2).strip()
-        return None, f"{street}, {city}"
+        m = RE_STREET_CITY.match(candidate)
+        if m:
+            street, city = m.group(1).strip(), m.group(2).strip()
+            return None, f"{street}, {city}"
 
     return None, None
 
@@ -434,7 +452,7 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
         data = {
             "status": text,
             "in_reply_to_id": str(in_reply_to_id),
-            "visibility": "public",
+            "visibility": "unlisted",
         }
         r = requests.post(url, headers=headers, data=data, timeout=MASTODON_TIMEOUT_S)
         if r.status_code not in (200, 201):
@@ -443,21 +461,42 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
     except Exception:
         return False
 
+def build_reply_ok() -> str:
+    # A) Alles top
+    return "Alles top – danke! Der Report ist drin und wird nach dem FAV auf die Karte übernommen. Alerta alerta 🖖"
+
+def build_reply_improve(hints: list[str]) -> str:
+    # B) Erkannt, aber besser möglich
+    lines = ["Danke! Report erkannt ✅", "Optional für bessere Qualität:"]
+    for h in (hints or [])[:5]:
+        lines.append(f"• {h}")
+    lines.append("Alerta alerta 🖖")
+    return "\n".join(lines)
+
+def build_reply_missing(missing: list[str]) -> str:
+    # C) Es fehlt etwas -> neu posten
+    lines = ["Ich kann den Report so noch nicht verarbeiten ❌", "Bitte neu posten mit:"]
+    for m in (missing or [])[:6]:
+        lines.append(f"• {m}")
+    lines.append("Wichtig: Im Text muss @HeatmapofFascism stehen.")
+    lines.append("Alerta alerta 🖖")
+    return "\n".join(lines)
+
 def build_needs_info_reply(location_text: str) -> str:
+    # Geocode fehlgeschlagen -> präzisere Ortsangabe anfordern
     loc = (location_text or "").strip()
-    loc_part = f" („{loc}“)" if loc else ""
+    loc_part = f' („{loc}“)' if loc else ""
     return (
         "Danke für die Meldung. Ich kann den Ort gerade nicht automatisch auflösen"
         + loc_part
         + ".\n"
-        "Bitte antworte mit einem von diesen Formaten:\n"
+        "Bitte antworte mit EINEM von diesen Formaten:\n"
         "• Koordinaten: 53.87, 10.68\n"
         "• Kreuzung: Straße A / Straße B, Stadt\n"
         "• Adresse: Straße 12, Stadt\n"
-        "Dann erscheint der Punkt auf der Karte. Alerta alerta"
+        "Und wichtig: Im Text muss @HeatmapofFascism stehen.\n"
+        "Alerta alerta 🖖"
     )
-
-
 def load_trusted_set(cfg: Dict[str, Any]) -> set:
     # Union of (config allowed_reviewers) + (local trusted_accounts.json)
     allowed = set((a or "").split("@")[0].strip().lower() for a in (cfg.get("allowed_reviewers") or []))
@@ -627,6 +666,38 @@ def main():
 
     cache: Dict[str, Any] = load_json(CACHE_PATH, {})
     pending: List[Dict[str, Any]] = load_json(PENDING_PATH, [])
+
+    # RETRY NEEDS_INFO geocode (e.g. after better formatting / new token)
+    for it in pending:
+        if it.get('status') != 'NEEDS_INFO' or it.get('error') != 'geocode_failed':
+            continue
+        q = str(it.get('location_text') or '').strip()
+        if not q:
+            continue
+        q_norm = normalize_query(q)
+        coords2, method = geocode_query_worldwide(q, cfg['user_agent'])
+        if not coords2 and q_norm and q_norm != q:
+            coords2, method = geocode_query_worldwide(q_norm, cfg['user_agent'])
+        if not coords2:
+            coords2, method = geocode_query_worldwide(f"{q}, Germany", cfg['user_agent'])
+        if coords2:
+            lat, lon = coords2
+            it['lat'] = float(lat)
+            it['lon'] = float(lon)
+            it['geocode_method'] = method
+            if method == 'overpass_node':
+                acc = ACC_NODE
+            elif method == 'overpass_nearest':
+                acc = ACC_NEAREST
+            elif method == 'fallback':
+                acc = ACC_FALLBACK
+            else:
+                acc = ACC_DEFAULT
+            it['accuracy_m'] = int(acc)
+            it['radius_m'] = int(acc)
+            it['status'] = 'PENDING'
+            it.pop('error', None)
+            time.sleep(DELAY_NOMINATIM)
     reports = load_reports()
     reports_ids = reports_id_set(reports)
 
@@ -662,6 +733,43 @@ def main():
             if a.get("type") == "image" and a.get("url")
         ]
 
+
+        # REQUIRE mention (anti-spam / routing)
+        require_mention = bool(cfg.get("require_mention", True))
+        required_mentions = cfg.get("required_mentions") or ["HeatmapofFascism"]
+        if require_mention and not contains_required_mention(text, required_mentions):
+            needs_item = {
+                "id": item_id,
+                "status_id": str(status_id),
+                "status": "NEEDS_INFO",
+                "event": event,
+                "tag": tag,
+                "source": url,
+                "created_at": st.get("created_at"),
+                "created_date": iso_date_from_created_at(st.get("created_at")),
+                "lat": 0.0,
+                "lon": 0.0,
+                "accuracy_m": int(ACC_FALLBACK),
+                "radius_m": int(ACC_FALLBACK),
+                "geocode_method": "none",
+                "location_text": "",
+                "sticker_type": parse_sticker_type(text),
+                "removed_at": None,
+                "media": media_urls,
+                "error": "missing_mention",
+                "replied": [],
+            }
+            if post_public_reply(cfg, str(status_id), build_reply_missing([
+                "Foto",
+                "#sticker_report oder #sticker_removed",
+                "Ort: Koordinaten ODER Kreuzung ODER Adresse",
+                "@HeatmapofFascism (Mention im Text)"
+            ])):
+                needs_item["replied"].append("missing")
+            pending.append(needs_item)
+            pending_by_source[url] = needs_item
+            added_pending += 1
+            continue
         coords, q = parse_location(text)
         if not coords and not q:
             continue
@@ -691,7 +799,9 @@ def main():
                 accuracy_m = int(cache[q].get("accuracy_m", ACC_DEFAULT))
                 radius_m = int(cache[q].get("radius_m", accuracy_m))
             else:
-                coords2, method = geocode_query_worldwide(q_norm, cfg["user_agent"])
+                coords2, method = geocode_query_worldwide(q, cfg["user_agent"])
+                if not coords2:
+                    coords2, method = geocode_query_worldwide(q_norm, cfg["user_agent"])
                 time.sleep(DELAY_NOMINATIM)
                 if not coords2:
                     # NEEDS_INFO: keep the report and ask publicly for better location
@@ -883,6 +993,11 @@ def main():
             reports["features"].append(new_feat)
             reports_ids.add(item_id)
             published += 1
+
+        # A) OK reply once (after successful publish)
+        if not item.get("replied_ok"):
+            if post_public_reply(cfg, str(item["status_id"]), build_reply_ok()):
+                item["replied_ok"] = True
 
         time.sleep(DELAY_FAV_CHECK)
 

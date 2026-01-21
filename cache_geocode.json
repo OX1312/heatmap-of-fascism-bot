@@ -1,11 +1,11 @@
 {
-  "intersection of Ratzeburger Allee and Kahlhorststraße, Lübeck": {
-    "lat": 53.8510526,
-    "lon": 10.7029559,
-    "ts": 0,
-    "method": "overpass",
-    "accuracy_m": 10,
-    "radius_m": 10,
-    "q_norm": "intersection of Ratzeburger Allee and Kahlhorststraße, Lübeck"
+  "Arnimstraße 24, Lübeck": {
+    "lat": 53.8743118,
+    "lon": 10.7129018,
+    "ts": 1769001741,
+    "method": "nominatim",
+    "accuracy_m": 25,
+    "radius_m": 25,
+    "q_norm": "Arnimstrasse 24, Luebeck"
   }
 }
