@@ -55,6 +55,7 @@ REPORTS_PATH = ROOT / "reports.geojson"
 # =========================
 RE_COORDS = re.compile(r"(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)")
 RE_ADDRESS = re.compile(r"^(.+?)\s+(\d+[a-zA-Z]?)\s*,\s*(.+)$")  # "Street 12, City"
+RE_STREET_CITY = re.compile(r"^(.+?)\s*,\s*(.+)$")  # "Street, City"
 RE_CROSS = re.compile(r"^(.+?)\s*(?:/| x | & )\s*(.+?)\s*,\s*(.+)$", re.IGNORECASE)  # "A / B, City"
 RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(.+?)\s*$", re.IGNORECASE)
 RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:\s*([^\n#]{1,80})\s*$")
@@ -128,6 +129,26 @@ def normalize_query(q: str) -> str:
     q = q.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
     return q
 
+
+
+def normalize_location_line(s: str) -> str:
+    s = (s or "").strip()
+
+    # Strip common prefixes (multi-language)
+    s = re.sub(r"(?i)^\s*(ort|location|place)\s*:\s*", "", s)
+
+
+    # DE: "...str." / "...str" -> "...straße" (Arminstr., Hauptstr, etc.)
+    s = re.sub(r"(?i)(?<=\w)str\.\b", "straße", s)
+    s = re.sub(r"(?i)(?<=\w)str\b", "straße", s)
+
+    # Cleanup
+    # Fix punctuation artifacts (e.g. "straße.," -> "straße,")
+    s = re.sub(r"\.,", ",", s)
+
+    s = re.sub(r"\s+", " ", s)
+    return s
+
 def has_image(attachments: List[Dict[str, Any]]) -> bool:
     for a in attachments or []:
         if a.get("type") == "image" and a.get("url"):
@@ -177,6 +198,8 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
     if not candidate:
         return None, None
 
+    candidate = normalize_location_line(candidate)
+
     m = RE_ADDRESS.match(candidate)
     if m:
         street, number, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
@@ -186,6 +209,11 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
     if m:
         a, b, city = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
         return None, f"intersection of {a} and {b}, {city}"
+
+    m = RE_STREET_CITY.match(candidate)
+    if m:
+        street, city = m.group(1).strip(), m.group(2).strip()
+        return None, f"{street}, {city}"
 
     return None, None
 
