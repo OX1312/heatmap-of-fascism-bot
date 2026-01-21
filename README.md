@@ -41,6 +41,19 @@ During beta, moderation rules may evolve; see `docs/MODERATION.md`.
 - Better reporter feedback (clear rejection reasons + fix hints)
 - Stronger duplicate/proximity matching
 - Trust levels for reporters + distributed review
+- Add Telegram group integration as an additional inbound reporting channel (photo + `#sticker_report` + location)
+- Add Signal group integration as an additional inbound reporting channel (photo + `#sticker_report` + location; inbound-only in beta due to unofficial tooling)
+- Support “Chat = City” mapping for messenger groups (per-group fixed city; allow street/crossing only)
+
+  ### Mid-term
+- Add **Signal group integration** as an additional *input channel* (same rules as Telegram).
+- Reliability hardening:
+  - Attachment handling + dedupe (image hash)
+  - Abuse/spam throttling per sender/chat
+  - Structured “NEEDS_INFO” feedback workflow
+
+### Notes / constraints
+- Signal integration is **unofficial tooling** (higher maintenance risk); keep it **inbound-only** and low-volume in beta.
 
 More: `docs/ROADMAP.md`
 
