@@ -6,8 +6,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          10.7067179,
-          53.8364566
+          10.7029559,
+          53.8510526
         ]
       },
       "properties": {
@@ -17,12 +17,12 @@
         "sticker_type": "unknown",
         "first_seen": "2026-01-20",
         "last_seen": "2026-01-20",
-        "seen_count": 3,
+        "seen_count": 6,
         "removed_at": null,
         "stale_after_days": 30,
-        "accuracy_m": 50,
-        "radius_m": 50,
-        "geocode_method": "fallback",
+        "accuracy_m": 10,
+        "radius_m": 10,
+        "geocode_method": "overpass",
         "location_text": "intersection of Ratzeburger Allee and Kahlhorststraße, Lübeck",
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/927/410/797/745/395/original/f7d0c041533671aa.jpeg"
