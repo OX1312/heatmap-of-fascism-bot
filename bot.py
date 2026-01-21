@@ -58,7 +58,7 @@ RE_ADDRESS = re.compile(r"^(.+?)\s+(\d+[a-zA-Z]?)\s*,\s*(.+)$")  # "Street 12, C
 RE_STREET_CITY = re.compile(r"^(.+?)\s*,\s*(.+)$")  # "Street, City"
 RE_CROSS = re.compile(r"^(.+?)\s*(?:/| x | & )\s*(.+?)\s*,\s*(.+)$", re.IGNORECASE)  # "A / B, City"
 RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(.+?)\s*$", re.IGNORECASE)
-RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:\s*([^\n#]{1,80})\s*$")
+RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
 
 # =========================
 # ENDPOINTS / POLITENESS
@@ -196,7 +196,14 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
         candidate = ln
         break
     if not candidate:
-        return None, None
+        # Fallback: messy one-line posts. Extract after Ort:/Location:/Place:
+        m2 = re.search(r"(?i)(ort|location|place)\s*:\s*(.+)", text)
+        if m2:
+            candidate = m2.group(2).strip()
+            # Cut off trailing mentions/hashtags glued to the same line
+            candidate = re.split(r"[@#]", candidate, maxsplit=1)[0].strip()
+        else:
+            return None, None
 
     candidate = normalize_location_line(candidate)
 
@@ -418,6 +425,39 @@ def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any
     r.raise_for_status()
     return r.json()
 
+def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bool:
+    """Public reply under the original post (no DM). Best-effort."""
+    try:
+        instance = cfg["instance_url"].rstrip("/")
+        url = f"{instance}/api/v1/statuses"
+        headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+        data = {
+            "status": text,
+            "in_reply_to_id": str(in_reply_to_id),
+            "visibility": "public",
+        }
+        r = requests.post(url, headers=headers, data=data, timeout=MASTODON_TIMEOUT_S)
+        if r.status_code not in (200, 201):
+            return False
+        return True
+    except Exception:
+        return False
+
+def build_needs_info_reply(location_text: str) -> str:
+    loc = (location_text or "").strip()
+    loc_part = f" („{loc}“)" if loc else ""
+    return (
+        "Danke für die Meldung. Ich kann den Ort gerade nicht automatisch auflösen"
+        + loc_part
+        + ".\n"
+        "Bitte antworte mit einem von diesen Formaten:\n"
+        "• Koordinaten: 53.87, 10.68\n"
+        "• Kreuzung: Straße A / Straße B, Stadt\n"
+        "• Adresse: Straße 12, Stadt\n"
+        "Dann erscheint der Punkt auf der Karte. Alerta alerta"
+    )
+
+
 def load_trusted_set(cfg: Dict[str, Any]) -> set:
     # Union of (config allowed_reviewers) + (local trusted_accounts.json)
     allowed = set((a or "").split("@")[0].strip().lower() for a in (cfg.get("allowed_reviewers") or []))
@@ -616,6 +656,12 @@ def main():
         if not has_image(attachments):
             continue
 
+        media_urls = [
+            a.get("url")
+            for a in attachments
+            if a.get("type") == "image" and a.get("url")
+        ]
+
         coords, q = parse_location(text)
         if not coords and not q:
             continue
@@ -648,7 +694,36 @@ def main():
                 coords2, method = geocode_query_worldwide(q_norm, cfg["user_agent"])
                 time.sleep(DELAY_NOMINATIM)
                 if not coords2:
+                    # NEEDS_INFO: keep the report and ask publicly for better location
+                    needs_item = {
+                        "id": item_id,
+                        "status_id": str(status_id),
+                        "status": "NEEDS_INFO",
+                        "event": event,
+                        "tag": tag,
+                        "source": url,
+                        "created_at": st.get("created_at"),
+                        "created_date": created_date,
+                        # no reliable coords yet -> placeholders, will never be published while NEEDS_INFO
+                        "lat": 0.0,
+                        "lon": 0.0,
+                        "accuracy_m": int(ACC_FALLBACK),
+                        "radius_m": int(ACC_FALLBACK),
+                        "geocode_method": "none",
+                        "location_text": (q or "").strip(),
+                        "sticker_type": sticker_type,
+                        "removed_at": removed_at,
+                        "media": media_urls,
+                        "error": "geocode_failed",
+                    }
+                    pending.append(needs_item)
+                    pending_by_source[url] = needs_item
+                    added_pending += 1
+
+                    # public reply under the post
+                    post_public_reply(cfg, str(status_id), build_needs_info_reply(q or ""))
                     continue
+
                 lat, lon = coords2
                 geocode_method = method
 
@@ -676,11 +751,7 @@ def main():
         if event == "removed":
             removed_at = created_date
 
-        media_urls = [
-            a.get("url")
-            for a in attachments
-            if a.get("type") == "image" and a.get("url")
-        ]
+        # media_urls computed above
 
         item = {
             "id": item_id,
@@ -717,6 +788,7 @@ def main():
 
     for item in pending:
         if item.get("status") != "PENDING":
+            still_pending.append(item)
             continue
 
         item_id = str(item.get("id"))

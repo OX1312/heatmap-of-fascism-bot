@@ -1,1 +1,46 @@
-[]
+[
+  {
+    "id": "masto-115932790995765651",
+    "status_id": "115932790995765651",
+    "status": "NEEDS_INFO",
+    "event": "present",
+    "tag": "sticker_report",
+    "source": "https://mastodon.social/@HeatmapofFascism/115932790995765651",
+    "created_at": "2026-01-21T11:13:23.239Z",
+    "created_date": "2026-01-21",
+    "lat": 0.0,
+    "lon": 0.0,
+    "accuracy_m": 50,
+    "radius_m": 50,
+    "geocode_method": "none",
+    "location_text": "Arminstraße, Lübeck",
+    "sticker_type": "make germany white again",
+    "removed_at": null,
+    "media": [
+      "https://files.mastodon.social/media_attachments/files/115/932/790/652/791/592/original/60319e4f954478d1.jpeg"
+    ],
+    "error": "geocode_failed"
+  },
+  {
+    "id": "masto-115929464861060547",
+    "status_id": "115929464861060547",
+    "status": "NEEDS_INFO",
+    "event": "present",
+    "tag": "sticker_report",
+    "source": "https://mastodon.social/@HeatmapofFascism/115929464861060547",
+    "created_at": "2026-01-20T21:07:30.459Z",
+    "created_date": "2026-01-20",
+    "lat": 0.0,
+    "lon": 0.0,
+    "accuracy_m": 50,
+    "radius_m": 50,
+    "geocode_method": "none",
+    "location_text": "intersection of Ratzeburger Allee and Kahlhorststraße, Lübeck@HeatmapofFascism",
+    "sticker_type": "unknown",
+    "removed_at": null,
+    "media": [
+      "https://files.mastodon.social/media_attachments/files/115/927/410/797/745/395/original/f7d0c041533671aa.jpeg"
+    ],
+    "error": "geocode_failed"
+  }
+]
