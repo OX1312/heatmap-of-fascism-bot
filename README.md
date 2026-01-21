@@ -1,72 +1,124 @@
 # Heatmap of Fascism
 
-Heatmap of Fascism documents fascist sticker propaganda in public space.
-Reports are submitted via Mastodon, reviewed, and mapped worldwide to reveal hotspots, persistence, and removals over time.
+**Heatmap of Fascism documents fascist sticker propaganda in public space.**
 
-## Submit a report (Mastodon)
+The project collects *verified, location-based reports* via Mastodon and maps them worldwide  
+to make **hotspots, persistence, and removals** visible over time.
 
-A report is processed only if it contains:
+⚠️ This is **not passive scraping**.  
+Only **explicitly submitted reports** are processed.
+
+---
+
+## How to submit a report (Mastodon) — REQUIRED
+
+A report is processed **only** if it contains **all** of the following:
 
 1) **One photo** (sticker image)
-2) **One location** (choose one):
+2) **One location** (choose exactly one):
    - **Coordinates:** `lat, lon`
    - **Street + city:** `Street 12, City`
    - **Crossing + city:** `StreetA / StreetB, City`
+3) **@HeatmapOfFascism mention**  
+   (in the post **or** in a reply)
 
-Optional (recommended):
-- **Sticker type:** `#sticker_type: <text>` (e.g. party / symbol / slogan)
-- Notes in plain text
+Reports **without an @mention** may be ignored to avoid ambiguity and noise.
+
+### Optional (recommended)
+- **Date**
+- **Sticker type:** `#sticker_type:<text>`  
+  (e.g. party / symbol / slogan)
+- Plain-text notes
+
+---
 
 ## Hashtags
 
-- **Everyone:** `#sticker_report`  (sticker present)
-- **Confirmed removal:** `#sticker_removed` (sticker removed)
+- **Everyone:** `#sticker_report` — sticker present
+- **Members only:** `#sticker_removed` — confirmed removal
 
-Only **reviewed** reports appear on the public map.
+---
 
-## Review (anti-spam)
+## Review & anti-spam policy
 
-A report becomes public only after a **Like/Favourite** by:
-- the project account, or
-- a reviewer in the allowlist.
+- No report appears on the map without **manual review**.
+- A report becomes public only after a **Like/Favourite** by:
+  - the project account, or
+  - a reviewer on the allowlist.
 
-## Processing rules
+This ensures:
+- no silent scraping
+- no drive-by spam
+- clear user intent
 
-- Reports without **photo + location** are ignored.
-- All locations are normalized to coordinates with an estimated accuracy **10–50 m**.
-- Repeated reports update the **same spot** (no duplicate spam).
+---
+
+## Processing rules (technical)
+
+- Reports without **photo + location + @mention** are ignored.
+- All locations are normalized to coordinates.
+- Estimated positional accuracy is **10–50 m**.
+- Repeated reports update the **same spot** (no duplicates).
 
 Each spot stores:
-- `first_seen`, `last_seen`, `seen_count`
+- `first_seen`
+- `last_seen`
+- `seen_count`
 - `status`: `present` | `removed` | `stale`
 
-### Status logic (map colors)
+### Status logic
 
-- **present** → **orange/red**
-- **removed** → **green**
-- **stale** → **gray** (no confirmation for **30 days**)
+- **present** → orange / red  
+- **removed** → green  
+- **stale** → gray (no confirmation for **30 days**)
 
-`last_seen` updates on every reviewed report.
-If a spot is `present` and not re-confirmed for **30 days**, it becomes `stale`.
+If a spot marked `present` is not re-confirmed for **30 days**, it becomes `stale`.
 
-### Accuracy → circle size
+---
+
+## Accuracy → map circle size
 
 Circle radius visualizes **location uncertainty**:
-- **10–15 m**: explicit coordinates (GPS)
-- **~25 m**: street/crossing geocoded
-- **up to 50 m**: vague/low-confidence location
+
+- **10–15 m** — explicit GPS coordinates
+- **~25 m** — street or crossing
+- **up to 50 m** — low-confidence / vague location
+
+---
 
 ## Map output
 
-- Public GeoJSON (`reports.geojson`) as single source of truth
+- **Single source of truth:** `reports.geojson`
 - OpenStreetMap / uMap visualization:
-  - points (with uncertainty circles)
+  - points with uncertainty circles
   - heatmap of active locations
-  - status over time
+  - temporal status changes
 
-## Local secrets (required)
+---
 
-This project requires a local `secrets.json` (NOT committed):
+## Roadmap
+
+**Short-term**
+- Enforce @mention as explicit intent marker
+- Improve geocoding confidence scoring
+- Clear user feedback on rejected reports
+
+**Mid-term**
+- Trust levels for reporters (A/B/C)
+- Better duplicate & proximity detection
+- Public statistics (removals vs persistence)
+
+**Long-term**
+- Federated moderation model
+- Read-only public API
+- Historical timelines per location
+
+---
+
+## Local setup (developers)
+
+This project requires a local `secrets.json`  
+(**never commit this file**):
 
 ```json
 {
