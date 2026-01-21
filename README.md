@@ -1,126 +1,48 @@
-# Heatmap of Fascism
+# README.md
 
-**Heatmap of Fascism documents fascist sticker propaganda in public space.**
+# Heatmap of Fascism (BETA)
 
-The project collects *verified, location-based reports* via Mastodon and maps them worldwide  
-to make **hotspots, persistence, and removals** visible over time.
+Heatmap of Fascism documents **fascist sticker propaganda in public space** via **explicit user reports** on Mastodon.
+Reports are **manually reviewed** and then shown on a public map to visualize **hotspots, persistence, and removals**.
 
-⚠️ This is **not passive scraping**.  
-Only **explicitly submitted reports** are processed.
+**No passive scraping.** Only posts that intentionally report to the project are processed.
 
----
+## Links
+- Map: https://umap.openstreetmap.de/de/map/heatmap_121255#6/52.194/11.646
+- Mastodon: https://mastodon.social/@HeatmapofFascism
+- Repo: https://github.com/OX1312/heatmap-of-fascism-bot
 
-## How to submit a report (Mastodon) — REQUIRED
+## Report a sticker (Mastodon) — minimum requirements
+Your post must include:
 
-A report is processed **only** if it contains **all** of the following:
+1) **1 photo**
+2) **1 location** (exactly one)
+   - `lat, lon` (best), or
+   - `Street, City` (optional ~house number)
+3) **@HeatmapofFascism** mention (in the post or in a reply)
 
-1) **One photo** (sticker image)
-2) **One location** (choose exactly one):
-   - **Coordinates:** `lat, lon`
-   - **Street + city:** `Street 12, City`
-   - **Crossing + city:** `StreetA / StreetB, City`
-3) **@HeatmapOfFascism mention**  
-   (in the post **or** in a reply)
+If **location is missing** (or too vague), the bot replies publicly and marks the report as **NEEDS_INFO**.
 
-Reports **without an @mention** may be ignored to avoid ambiguity and noise.
+## Safety + legality (important)
+- If the photo contains **illegal / unconstitutional extremist symbols**, you must **blur / censor them before posting**.
+  Uncensored illegal symbols → report is rejected.
+- Don’t post private data (faces, license plates, addresses of private homes, etc.). Blur if needed.
 
-### Optional (recommended)
-- **Date**
-- **Sticker type:** `#sticker_type:<text>`  
-  (e.g. party / symbol / slogan)
-- Plain-text notes
+## Review model (anti-spam)
+Nothing appears on the public map without **manual review**.
+During beta, moderation rules may evolve; see `docs/MODERATION.md`.
 
----
+## Data + output (high-level)
+- Single source of truth: `reports.geojson`
+- Locations are normalized to coordinates with **~10–50 m** stored uncertainty (rounding/jitter).
+- Bot feedback is posted as a **public reply** under the report by default.
 
-## Hashtags
+## Roadmap (short)
+- Better reporter feedback (clear rejection reasons + fix hints)
+- Stronger duplicate/proximity matching
+- Trust levels for reporters + distributed review
 
-- **Everyone:** `#sticker_report` — sticker present
-- **Members only:** `#sticker_removed` — confirmed removal
+More: `docs/ROADMAP.md`
 
----
-
-## Review & anti-spam policy
-
-- No report appears on the map without **manual review**.
-- A report becomes public only after a **Like/Favourite** by:
-  - the project account, or
-  - a reviewer on the allowlist.
-
-This ensures:
-- no silent scraping
-- no drive-by spam
-- clear user intent
-
----
-
-## Processing rules (technical)
-
-- Reports without **photo + location + @mention** are ignored.
-- All locations are normalized to coordinates.
-- Estimated positional accuracy is **10–50 m**.
-- Repeated reports update the **same spot** (no duplicates).
-
-Each spot stores:
-- `first_seen`
-- `last_seen`
-- `seen_count`
-- `status`: `present` | `removed` | `stale`
-
-### Status logic
-
-- **present** → orange / red  
-- **removed** → green  
-- **stale** → gray (no confirmation for **30 days**)
-
-If a spot marked `present` is not re-confirmed for **30 days**, it becomes `stale`.
-
----
-
-## Accuracy → map circle size
-
-Circle radius visualizes **location uncertainty**:
-
-- **10–15 m** — explicit GPS coordinates
-- **~25 m** — street or crossing
-- **up to 50 m** — low-confidence / vague location
-
----
-
-## Map output
-
-- **Single source of truth:** `reports.geojson`
-- OpenStreetMap / uMap visualization:
-  - points with uncertainty circles
-  - heatmap of active locations
-  - temporal status changes
-
----
-
-## Roadmap
-
-**Short-term**
-- Enforce @mention as explicit intent marker
-- Improve geocoding confidence scoring
-- Clear user feedback on rejected reports
-
-**Mid-term**
-- Trust levels for reporters (A/B/C)
-- Better duplicate & proximity detection
-- Public statistics (removals vs persistence)
-
-**Long-term**
-- Federated moderation model
-- Read-only public API
-- Historical timelines per location
-
----
-
-## Local setup (developers)
-
-This project requires a local `secrets.json`  
-(**never commit this file**):
-
-```json
-{
-  "access_token": "<your Mastodon access token>"
-}
+## Developer setup
+See `docs/DEVELOPERS.md`
