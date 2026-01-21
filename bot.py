@@ -1,38 +1,46 @@
 #!/usr/bin/env python3
-# Heatmap of Fascism — Product Bot
+# Heatmap of Fascism – Product Bot (Mastodon ingest → review via FAV → GeoJSON)
 #
-# What it does
-# 1) Ingest Mastodon posts from multiple hashtags (config.json: "hashtags")
-# 2) Require: image + location (coords OR "Street 12, City" OR "A / B, City")
-# 3) Normalize location to coordinates (Overpass for intersections, otherwise Nominatim; cached)
-# 4) Store new items in pending.json until approved
-# 5) Approval = a FAV by any account in allowlist:
-#    - config.json: allowed_reviewers
-#    - trusted_accounts.json (local): {"trusted_reviewers":[...]}
-# 6) Publish to reports.geojson using a fixed schema + dupe merge (radius-based)
+# HARD RULES (product):
+# - Anyone can POST reports (public).
+# - NOTHING is published unless the post is FAV’d by an allowed reviewer.
+# - Locations:
+#   - coords "lat, lon" anywhere in text
+#   - OR "Street 12, City" (first non-hashtag line)
+#   - OR "Street A / Street B, City" (first non-hashtag line)
+# - Hashtags (exact, mastodon-safe):
+#   - #sticker_report  -> present
+#   - #sticker_removed -> removed
 #
-# Files
-# - config.json (tracked)
-# - secrets.json (local, NOT tracked): {"access_token":"..."}
-# - trusted_accounts.json (local, NOT tracked): {"trusted_reviewers":["buntepanther", ...]}
-# - cache_geocode.json (local cache)
-# - pending.json (local state)
-# - reports.geojson (tracked output for the map)
-
-from __future__ import annotations
+# Files:
+# - config.json            (tracked)  rules + instance_url + user_agent + hashtags + stale_after_days + accuracy
+# - secrets.json           (local, NOT tracked) {"access_token":"..."}
+# - trusted_accounts.json  (local, NOT tracked) ["heatmapoffascism","buntepanther", ...]  (reviewers who may FAV-approve)
+# - cache_geocode.json     (tracked)  geocode cache
+# - pending.json           (tracked)  pending items waiting for approval
+# - reports.geojson        (tracked)  single source of truth (FeatureCollection)
+#
+# Status model:
+# - "present"  = confirmed present
+# - "removed"  = confirmed removed
+# - "unknown"  = stale/uncertain (was present but not confirmed for stale_after_days)
+#
+# Dupe merge on publish:
+# If distance <= max(existing.radius_m, new.radius_m) AND sticker_type matches OR one is "unknown"
+# then UPDATE existing feature (last_seen, seen_count, status, removed_at, media, accuracy/radius tightened)
 
 import json
-import math
-import pathlib
 import re
 import time
+import pathlib
+import math
+from typing import Optional, Tuple, Dict, Any, List, Iterable
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
 # =========================
-# PATHS
+# FILES
 # =========================
 ROOT = pathlib.Path(__file__).resolve().parent
 CFG_PATH = ROOT / "config.json"
@@ -52,7 +60,7 @@ RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(
 RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:\s*([^\n#]{1,80})\s*$")
 
 # =========================
-# OSM ENDPOINTS
+# ENDPOINTS / POLITENESS
 # =========================
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_ENDPOINTS = (
@@ -61,18 +69,19 @@ OVERPASS_ENDPOINTS = (
     "https://overpass.openstreetmap.ru/api/interpreter",
 )
 
-# =========================
-# POLITENESS / TIMEOUTS
-# =========================
-DELAY_BETWEEN_TAGS_S = 0.15
-DELAY_BETWEEN_FAVCHECK_S = 0.35
-DELAY_AFTER_GEOCODE_S = 1.0
+DELAY_TAG_FETCH = 0.15
+DELAY_FAV_CHECK = 0.35
+DELAY_NOMINATIM = 1.0
 
-HTTP_TIMEOUT_S = 25
-OVERPASS_TIMEOUT_S = 40
+OVERPASS_TIMEOUT_S = 45
+NOMINATIM_TIMEOUT_S = 25
+MASTODON_TIMEOUT_S = 25
+
+# Limit points used in nearest computation (protect runtime)
+MAX_GEOM_POINTS_PER_STREET = 500
 
 # =========================
-# JSON IO
+# IO
 # =========================
 def load_json(path: pathlib.Path, default):
     if not path.exists():
@@ -88,19 +97,36 @@ def ensure_reports_file():
     if not REPORTS_PATH.exists():
         save_json(REPORTS_PATH, {"type": "FeatureCollection", "features": []})
 
+def ensure_object_file(path: pathlib.Path):
+    if not path.exists():
+        save_json(path, {})
+
+def ensure_array_file(path: pathlib.Path):
+    if not path.exists():
+        save_json(path, [])
+
 # =========================
-# SMALL HELPERS
+# HELPERS
 # =========================
 def today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 def iso_date_from_created_at(created_at: Optional[str]) -> str:
-    return (created_at or today_iso())[:10]
+    if not created_at:
+        return today_iso()
+    return created_at[:10]
 
 def strip_html(s: str) -> str:
     s = re.sub(r"<br\s*/?>", "\n", s, flags=re.IGNORECASE)
     s = re.sub(r"<[^>]+>", "", s)
     return s.strip()
+
+def normalize_query(q: str) -> str:
+    # Avoid fragile glyph mismatches in OSM search; keep worldwide
+    q = q.replace("ß", "ss")
+    q = q.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    q = q.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
+    return q
 
 def has_image(attachments: List[Dict[str, Any]]) -> bool:
     for a in attachments or []:
@@ -112,18 +138,12 @@ def parse_sticker_type(text: str) -> str:
     m = RE_STICKER_TYPE.search(text)
     if not m:
         return "unknown"
-    t = (m.group(1) or "").strip()
+    t = m.group(1).strip()
     return t if t else "unknown"
 
 def norm_type(s: str) -> str:
     s = (s or "unknown").strip().lower()
     return s if s else "unknown"
-
-def normalize_query(q: str) -> str:
-    q = q.replace("ß", "ss")
-    q = q.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
-    q = q.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
-    return q
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371000.0
@@ -137,6 +157,12 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # LOCATION PARSE
 # =========================
 def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
+    """
+    Returns:
+      (lat, lon) if coords found anywhere in text
+      OR a query string if address/crossing found in first non-hashtag line
+      OR (None, None) if invalid
+    """
     m = RE_COORDS.search(text)
     if m:
         return (float(m.group(1)), float(m.group(2))), None
@@ -169,15 +195,35 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
 def geocode_nominatim(query: str, user_agent: str) -> Optional[Tuple[float, float]]:
     headers = {"User-Agent": user_agent}
     params = {"q": query, "format": "json", "limit": 1}
-    r = requests.get(NOMINATIM_URL, params=params, headers=headers, timeout=HTTP_TIMEOUT_S)
+    r = requests.get(NOMINATIM_URL, params=params, headers=headers, timeout=NOMINATIM_TIMEOUT_S)
     r.raise_for_status()
     data = r.json()
     if not data:
         return None
     return float(data[0]["lat"]), float(data[0]["lon"])
 
-def overpass_intersection(city: str, a: str, b: str, user_agent: str) -> Optional[Tuple[float, float]]:
-    q = f"""
+def _overpass_post(query: str, user_agent: str) -> Optional[Dict[str, Any]]:
+    headers = {"User-Agent": user_agent}
+    for ep in OVERPASS_ENDPOINTS:
+        try:
+            r = requests.post(ep, data=query, headers=headers, timeout=OVERPASS_TIMEOUT_S)
+            if r.status_code != 200:
+                continue
+            return r.json()
+        except Exception:
+            continue
+    return None
+
+def overpass_intersection(city: str, a: str, b: str, user_agent: str) -> Optional[Tuple[Tuple[float, float], str]]:
+    """
+    Returns:
+      ((lat, lon), method)
+      method:
+        - "overpass_node"    (exact shared node)
+        - "overpass_nearest" (nearest points between both street geometries; midpoint)
+    """
+    # 1) exact shared node
+    q_node = f"""
 [out:json][timeout:25];
 area["name"="{city}"]["boundary"="administrative"]->.a;
 way(area.a)["highway"]["name"="{a}"]->.w1;
@@ -186,21 +232,100 @@ node(w.w1)(w.w2);
 out body;
 """.strip()
 
-    headers = {"User-Agent": user_agent}
-    for ep in OVERPASS_ENDPOINTS:
-        try:
-            r = requests.post(ep, data=q, headers=headers, timeout=OVERPASS_TIMEOUT_S)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            for el in data.get("elements", []):
-                if el.get("type") == "node" and "lat" in el and "lon" in el:
-                    return float(el["lat"]), float(el["lon"])
-        except Exception:
+    data = _overpass_post(q_node, user_agent)
+    if data:
+        for el in data.get("elements", []):
+            if el.get("type") == "node" and "lat" in el and "lon" in el:
+                return (float(el["lat"]), float(el["lon"])), "overpass_node"
+
+    # 2) nearest geometry points between both sets of ways (midpoint of closest pair)
+    q_geom = f"""
+[out:json][timeout:25];
+area["name"="{city}"]["boundary"="administrative"]->.a;
+(
+  way(area.a)["highway"]["name"="{a}"];
+)->.wa;
+(
+  way(area.a)["highway"]["name"="{b}"];
+)->.wb;
+.wa out geom;
+.wb out geom;
+""".strip()
+
+    data = _overpass_post(q_geom, user_agent)
+    if not data:
+        return None
+
+    pts_a: List[Tuple[float, float]] = []
+    pts_b: List[Tuple[float, float]] = []
+
+    # Collect points by whether element matches a or b street name (best-effort)
+    # Note: ways can be split; we accept all parts.
+    for el in data.get("elements", []):
+        if el.get("type") != "way" or "geometry" not in el:
             continue
-    return None
+        name = ((el.get("tags") or {}).get("name") or "").strip()
+        geom = el.get("geometry") or []
+        if not geom:
+            continue
+
+        if name == a:
+            for p in geom:
+                if "lat" in p and "lon" in p:
+                    pts_a.append((float(p["lat"]), float(p["lon"])))
+        elif name == b:
+            for p in geom:
+                if "lat" in p and "lon" in p:
+                    pts_b.append((float(p["lat"]), float(p["lon"])))
+
+    # If name matching failed (variants, casing), fallback: split by first/second half of ways list
+    if not pts_a or not pts_b:
+        ways = [el for el in data.get("elements", []) if el.get("type") == "way" and "geometry" in el]
+        if len(ways) >= 2:
+            mid = len(ways) // 2
+            for el in ways[:mid]:
+                for p in el.get("geometry", []):
+                    if "lat" in p and "lon" in p:
+                        pts_a.append((float(p["lat"]), float(p["lon"])))
+            for el in ways[mid:]:
+                for p in el.get("geometry", []):
+                    if "lat" in p and "lon" in p:
+                        pts_b.append((float(p["lat"]), float(p["lon"])))
+
+    if not pts_a or not pts_b:
+        return None
+
+    pts_a = pts_a[:MAX_GEOM_POINTS_PER_STREET]
+    pts_b = pts_b[:MAX_GEOM_POINTS_PER_STREET]
+
+    best = None
+    best_pair = None
+    for (la, loa) in pts_a:
+        for (lb, lob) in pts_b:
+            d = haversine_m(la, loa, lb, lob)
+            if best is None or d < best:
+                best = d
+                best_pair = (la, loa, lb, lob)
+
+    if not best_pair:
+        return None
+
+    la, loa, lb, lob = best_pair
+    lat = (la + lb) / 2.0
+    lon = (loa + lob) / 2.0
+    return (lat, lon), "overpass_nearest"
 
 def geocode_query_worldwide(query: str, user_agent: str) -> Tuple[Optional[Tuple[float, float]], str]:
+    """
+    Returns (coords, method)
+    method:
+      - gps
+      - overpass_node
+      - overpass_nearest
+      - nominatim
+      - fallback
+      - none
+    """
     m = RE_INTERSECTION.match(query)
     if m:
         a = m.group(1).strip()
@@ -209,25 +334,34 @@ def geocode_query_worldwide(query: str, user_agent: str) -> Tuple[Optional[Tuple
 
         res = overpass_intersection(city=city, a=a, b=b, user_agent=user_agent)
         if res:
-            return res, "overpass"
+            coords, method = res
+            return coords, method
 
+        # If Overpass fails, try nominatim on full string
         try:
-            res = geocode_nominatim(query, user_agent)
-            if res:
-                return res, "nominatim"
+            res2 = geocode_nominatim(query, user_agent)
+            if res2:
+                return res2, "nominatim"
         except Exception:
             pass
 
-        for q2 in (f"{a}, {city}", f"{b}, {city}"):
-            try:
-                res = geocode_nominatim(q2, user_agent)
-                if res:
-                    return res, "fallback"
-            except Exception:
-                pass
+        # fallback: one street in city (low confidence)
+        try:
+            res3 = geocode_nominatim(f"{a}, {city}", user_agent)
+            if res3:
+                return res3, "fallback"
+        except Exception:
+            pass
+        try:
+            res4 = geocode_nominatim(f"{b}, {city}", user_agent)
+            if res4:
+                return res4, "fallback"
+        except Exception:
+            pass
 
         return None, "none"
 
+    # Non-intersection queries
     try:
         res = geocode_nominatim(query, user_agent)
         if res:
@@ -244,7 +378,7 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str) -> List[Dict[str, Any]]:
     tag = tag.lstrip("#")
     url = f"{instance}/api/v1/timelines/tag/{tag}"
     headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-    r = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT_S)
+    r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
     r.raise_for_status()
     return r.json()
 
@@ -252,19 +386,23 @@ def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any
     instance = cfg["instance_url"].rstrip("/")
     url = f"{instance}/api/v1/statuses/{status_id}/favourited_by"
     headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-    r = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT_S)
+    r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
     r.raise_for_status()
     return r.json()
 
-def build_reviewer_allowlist(cfg: Dict[str, Any]) -> set:
-    base = set((a or "").split("@")[0].lower() for a in (cfg.get("allowed_reviewers") or []))
-    extra = load_json(TRUSTED_PATH, {}) if TRUSTED_PATH.exists() else {}
-    for a in (extra.get("trusted_reviewers") or []):
-        base.add((a or "").lstrip("@").split("@")[0].lower())
-    return set(x for x in base if x)
+def load_trusted_set(cfg: Dict[str, Any]) -> set:
+    # Union of (config allowed_reviewers) + (local trusted_accounts.json)
+    allowed = set((a or "").split("@")[0].strip().lower() for a in (cfg.get("allowed_reviewers") or []))
+    trusted_local = load_json(TRUSTED_PATH, [])
+    if isinstance(trusted_local, list):
+        for a in trusted_local:
+            if isinstance(a, str):
+                allowed.add(a.split("@")[0].strip().lower())
+    allowed.discard("")
+    return allowed
 
-def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, allow: set) -> bool:
-    if not allow:
+def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) -> bool:
+    if not trusted_set:
         return False
     try:
         fav_accounts = get_favourited_by(cfg, status_id)
@@ -272,14 +410,14 @@ def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, allow: set) -> bool:
         return False
 
     for acc in fav_accounts:
-        acct = (acc.get("acct") or "").split("@")[0].lower()
-        username = (acc.get("username") or "").lower()
-        if acct in allow or username in allow:
+        acct = (acc.get("acct") or "").split("@")[0].strip().lower()
+        username = (acc.get("username") or "").strip().lower()
+        if acct in trusted_set or username in trusted_set:
             return True
     return False
 
 # =========================
-# REPORTS (FIXED PRODUCT SCHEMA)
+# REPORTS (PRODUCT SCHEMA)
 # =========================
 def load_reports() -> Dict[str, Any]:
     ensure_reports_file()
@@ -298,18 +436,49 @@ def reports_id_set(reports: Dict[str, Any]) -> set:
             ids.add(p["id"])
     return ids
 
+def apply_stale_rule(reports: Dict[str, Any], stale_after_days: int) -> int:
+    """
+    Product rule:
+      - present -> unknown if not confirmed for N days
+      - removed stays removed (no auto-change)
+    """
+    from datetime import date
+
+    def parse_date(s: str) -> Optional[date]:
+        try:
+            return datetime.strptime(s, "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    changed = 0
+    today = datetime.now(timezone.utc).date()
+
+    for f in reports.get("features", []):
+        p = f.get("properties") or {}
+        if p.get("status") != "present":
+            continue
+        last_seen = parse_date(str(p.get("last_seen", "")))
+        if not last_seen:
+            continue
+        if (today - last_seen).days >= stale_after_days:
+            p["status"] = "unknown"
+            p["stale_after_days"] = int(stale_after_days)
+            changed += 1
+
+    return changed
+
 def make_product_feature(
     *,
     item_id: str,
     source_url: str,
-    status: str,
+    status: str,  # present | removed | unknown
     sticker_type: str,
     created_date: str,
     lat: float,
     lon: float,
     accuracy_m: int,
     radius_m: int,
-    geocode_method: str,
+    geocode_method: str,  # gps | nominatim | overpass_node | overpass_nearest | fallback
     location_text: str,
     media: List[str],
     stale_after_days: int,
@@ -342,105 +511,30 @@ def make_product_feature(
         }
     }
 
-def apply_stale_rule(reports: Dict[str, Any], stale_after_days: int) -> int:
-    def parse_date(s: str) -> Optional[datetime]:
-        try:
-            return datetime.strptime(s, "%Y-%m-%d")
-        except Exception:
-            return None
-
-    changed = 0
-    today = datetime.now(timezone.utc).date()
-
-    for f in reports.get("features", []):
-        p = f.get("properties") or {}
-        if p.get("status") != "present":
-            continue
-        last_seen_dt = parse_date(str(p.get("last_seen", "")))
-        if not last_seen_dt:
-            continue
-        if (today - last_seen_dt.date()).days >= stale_after_days:
-            p["status"] = "stale"
-            p["stale_after_days"] = int(stale_after_days)
-            changed += 1
-
-    return changed
-
-def dupe_merge_or_append(
-    *,
-    reports: Dict[str, Any],
-    new_feat: Dict[str, Any],
-    new_status: str,
-    new_removed_at: Optional[str],
-) -> bool:
-    new_p = new_feat["properties"]
-    new_lat = float(new_feat["geometry"]["coordinates"][1])
-    new_lon = float(new_feat["geometry"]["coordinates"][0])
-    new_r = int(new_p.get("radius_m") or new_p.get("accuracy_m") or 25)
-    new_type = norm_type(new_p.get("sticker_type"))
-
-    for f in reports.get("features", []):
-        p = f.get("properties") or {}
-        coords = (f.get("geometry") or {}).get("coordinates") or []
-        if len(coords) != 2:
-            continue
-
-        ex_lon, ex_lat = float(coords[0]), float(coords[1])
-        ex_r = int(p.get("radius_m") or p.get("accuracy_m") or 25)
-        ex_type = norm_type(p.get("sticker_type"))
-
-        if not (new_type == "unknown" or ex_type == "unknown" or new_type == ex_type):
-            continue
-
-        dist = haversine_m(new_lat, new_lon, ex_lat, ex_lon)
-        if dist <= max(ex_r, new_r):
-            created_date = str(new_p.get("last_seen") or new_p.get("first_seen") or today_iso())
-            p["last_seen"] = created_date
-            p["seen_count"] = int(p.get("seen_count", 1)) + 1
-
-            if new_status == "present":
-                p["status"] = "present"
-                p["removed_at"] = None
-            elif new_status == "removed":
-                p["status"] = "removed"
-                p["removed_at"] = new_removed_at
-
-            if ex_type == "unknown" and new_type != "unknown":
-                p["sticker_type"] = new_p.get("sticker_type")
-
-            p["accuracy_m"] = min(int(p.get("accuracy_m", ex_r)), int(new_p.get("accuracy_m", new_r)))
-            p["radius_m"] = min(int(p.get("radius_m", ex_r)), int(new_p.get("radius_m", new_r)))
-
-            media = list(p.get("media") or [])
-            seen = set(media)
-            for u in list(new_p.get("media") or []):
-                if u and u not in seen:
-                    media.append(u)
-                    seen.add(u)
-            p["media"] = media
-            return True
-
-    reports["features"].append(new_feat)
-    return False
-
 # =========================
-# ITERATE STATUS STREAM
+# MAIN
 # =========================
 def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any]]]:
+    """
+    Yields: (tag, event, status_dict)
+    event is "present" or "removed" (from cfg["hashtags"])
+    """
     tags_map = cfg.get("hashtags") or {}
     if not isinstance(tags_map, dict) or not tags_map:
-        tags_map = {"sticker_report": "present"}
+        tags_map = {"sticker_report": "present", "sticker_removed": "removed"}
 
     for tag, event in tags_map.items():
         statuses = get_hashtag_timeline(cfg, tag)
         for st in statuses:
             yield tag, event, st
-        time.sleep(DELAY_BETWEEN_TAGS_S)
+        time.sleep(DELAY_TAG_FETCH)
 
-# =========================
-# MAIN
-# =========================
 def main():
+    # Ensure baseline files exist
+    ensure_object_file(CACHE_PATH)
+    ensure_array_file(PENDING_PATH)
+    ensure_reports_file()
+
     cfg = load_json(CFG_PATH, None)
     if not cfg:
         raise SystemExit("Missing config.json")
@@ -450,32 +544,40 @@ def main():
         raise SystemExit('Missing secrets.json (needs: {"access_token":"..."})')
 
     cfg["access_token"] = secrets["access_token"]
-    reviewer_allow = build_reviewer_allowlist(cfg)
 
+    # Accuracy/radius defaults
     stale_after_days = int(cfg.get("stale_after_days", 30))
     acc_cfg = cfg.get("accuracy") or {}
-    ACC_INTERSECTION = int(acc_cfg.get("intersection_m", 10))
+
+    ACC_GPS = int(acc_cfg.get("gps_m", 10))
+    ACC_NODE = int(acc_cfg.get("intersection_node_m", 10))
+    ACC_NEAREST = int(acc_cfg.get("intersection_nearest_m", 25))
     ACC_DEFAULT = int(acc_cfg.get("default_m", 25))
     ACC_FALLBACK = int(acc_cfg.get("fallback_m", 50))
+
+    trusted_set = load_trusted_set(cfg)
 
     cache: Dict[str, Any] = load_json(CACHE_PATH, {})
     pending: List[Dict[str, Any]] = load_json(PENDING_PATH, [])
     reports = load_reports()
     reports_ids = reports_id_set(reports)
 
+    # Dedupe pending by source URL
     pending_by_source = {p.get("source"): p for p in pending if p.get("source")}
 
     added_pending = 0
     published = 0
 
-    # ---- ingest new to pending ----
+    # -------------------------
+    # 1) Ingest into pending
+    # -------------------------
     for tag, event, st in iter_statuses(cfg):
-        sid = st.get("id")
+        status_id = st.get("id")
         url = st.get("url")
-        if not sid or not url:
+        if not status_id or not url:
             continue
 
-        item_id = f"masto-{sid}"
+        item_id = f"masto-{status_id}"
         if item_id in reports_ids:
             continue
         if url in pending_by_source:
@@ -502,8 +604,8 @@ def main():
         if coords:
             lat, lon = coords
             geocode_method = "gps"
-            accuracy_m = ACC_INTERSECTION
-            radius_m = ACC_INTERSECTION
+            accuracy_m = ACC_GPS
+            radius_m = ACC_GPS
             location_text = f"{lat}, {lon}"
         else:
             location_text = q or ""
@@ -515,21 +617,23 @@ def main():
                 accuracy_m = int(cache[q].get("accuracy_m", ACC_DEFAULT))
                 radius_m = int(cache[q].get("radius_m", accuracy_m))
             else:
-                coords2, method = geocode_query_worldwide(q_norm, cfg.get("user_agent", "HeatmapOfFascismBot/0.1"))
-                time.sleep(DELAY_AFTER_GEOCODE_S)
+                coords2, method = geocode_query_worldwide(q_norm, cfg["user_agent"])
+                time.sleep(DELAY_NOMINATIM)
                 if not coords2:
                     continue
                 lat, lon = coords2
                 geocode_method = method
 
-                if method == "overpass":
-                    accuracy_m = ACC_INTERSECTION
+                if method == "overpass_node":
+                    accuracy_m = ACC_NODE
+                elif method == "overpass_nearest":
+                    accuracy_m = ACC_NEAREST
                 elif method == "fallback":
                     accuracy_m = ACC_FALLBACK
                 else:
                     accuracy_m = ACC_DEFAULT
 
-                radius_m = accuracy_m
+                radius_m = accuracy_m  # circle size = uncertainty
 
                 cache[q] = {
                     "lat": lat,
@@ -538,21 +642,26 @@ def main():
                     "method": geocode_method,
                     "accuracy_m": accuracy_m,
                     "radius_m": radius_m,
-                    "q_norm": q_norm,
+                    "q_norm": q_norm
                 }
 
         if event == "removed":
             removed_at = created_date
 
-        media_urls = [a.get("url") for a in attachments if a.get("type") == "image" and a.get("url")]
+        media_urls = [
+            a.get("url")
+            for a in attachments
+            if a.get("type") == "image" and a.get("url")
+        ]
 
-        pending_item = {
+        item = {
             "id": item_id,
-            "status_id": str(sid),
+            "status_id": str(status_id),
             "status": "PENDING",
-            "event": event,
+            "event": event,  # present/removed
             "tag": tag,
             "source": url,
+            "created_at": st.get("created_at"),
             "created_date": created_date,
 
             "lat": float(lat),
@@ -565,37 +674,43 @@ def main():
 
             "sticker_type": sticker_type,
             "removed_at": removed_at,
+
             "media": media_urls,
         }
 
-        pending.append(pending_item)
-        pending_by_source[url] = pending_item
+        pending.append(item)
+        pending_by_source[url] = item
         added_pending += 1
 
-    # ---- publish approved ----
+    # -------------------------
+    # 2) Publish approved (FAV)
+    # -------------------------
     still_pending: List[Dict[str, Any]] = []
+
     for item in pending:
         if item.get("status") != "PENDING":
             continue
 
-        item_id = str(item.get("id") or "")
-        if not item_id or item_id in reports_ids:
+        item_id = str(item.get("id"))
+        if item_id in reports_ids:
             continue
 
-        ok = is_approved_by_fav(cfg, str(item["status_id"]), reviewer_allow)
+        ok = is_approved_by_fav(cfg, str(item["status_id"]), trusted_set)
         if not ok:
             still_pending.append(item)
+            time.sleep(DELAY_FAV_CHECK)
             continue
 
-        new_status = "removed" if item.get("event") == "removed" else "present"
-        new_removed_at = item.get("removed_at") if new_status == "removed" else None
+        new_status = ("removed" if item.get("event") == "removed" else "present")
+        new_removed_at = item.get("removed_at", None)
+        created_date = str(item.get("created_date") or today_iso())
 
-        feat = make_product_feature(
+        new_feat = make_product_feature(
             item_id=item_id,
             source_url=str(item["source"]),
             status=new_status,
             sticker_type=str(item.get("sticker_type") or "unknown"),
-            created_date=str(item.get("created_date") or today_iso()),
+            created_date=created_date,
             lat=float(item["lat"]),
             lon=float(item["lon"]),
             accuracy_m=int(item.get("accuracy_m", ACC_DEFAULT)),
@@ -607,14 +722,74 @@ def main():
             removed_at=new_removed_at,
         )
 
-        dupe_merge_or_append(reports=reports, new_feat=feat, new_status=new_status, new_removed_at=new_removed_at)
-        reports_ids.add(item_id)
-        published += 1
+        # Dupe merge:
+        new_p = new_feat["properties"]
+        new_lat = float(item["lat"])
+        new_lon = float(item["lon"])
+        new_r = int(new_p.get("radius_m") or new_p.get("accuracy_m") or ACC_DEFAULT)
+        new_type = norm_type(new_p.get("sticker_type"))
 
-        time.sleep(DELAY_BETWEEN_FAVCHECK_S)
+        merged = False
 
+        for f in reports.get("features", []):
+            p = f.get("properties") or {}
+            coords = (f.get("geometry") or {}).get("coordinates") or []
+            if len(coords) != 2:
+                continue
+
+            ex_lon, ex_lat = float(coords[0]), float(coords[1])
+            ex_r = int(p.get("radius_m") or p.get("accuracy_m") or ACC_DEFAULT)
+            ex_type = norm_type(p.get("sticker_type"))
+
+            # type rule: must match OR one side unknown
+            if not (new_type == "unknown" or ex_type == "unknown" or new_type == ex_type):
+                continue
+
+            dist = haversine_m(new_lat, new_lon, ex_lat, ex_lon)
+            if dist <= max(ex_r, new_r):
+                # UPDATE existing
+                p["last_seen"] = created_date
+                p["seen_count"] = int(p.get("seen_count", 1)) + 1
+
+                if new_status == "present":
+                    p["status"] = "present"      # can revive from unknown
+                    p["removed_at"] = None
+                else:
+                    p["status"] = "removed"
+                    p["removed_at"] = new_removed_at
+
+                # promote type if existing unknown
+                if ex_type == "unknown" and new_type != "unknown":
+                    p["sticker_type"] = new_p.get("sticker_type", "unknown")
+
+                # tighten uncertainty if we got better info
+                p["accuracy_m"] = min(int(p.get("accuracy_m", ex_r)), int(new_p.get("accuracy_m", new_r)))
+                p["radius_m"] = min(int(p.get("radius_m", ex_r)), int(new_p.get("radius_m", new_r)))
+
+                # merge media
+                media = list(p.get("media") or [])
+                seen = set(media)
+                for u in list(new_p.get("media") or []):
+                    if u and u not in seen:
+                        media.append(u)
+                        seen.add(u)
+                p["media"] = media
+
+                merged = True
+                published += 1
+                break
+
+        if not merged:
+            reports["features"].append(new_feat)
+            reports_ids.add(item_id)
+            published += 1
+
+        time.sleep(DELAY_FAV_CHECK)
+
+    # 3) Stale rule: present -> unknown after N days
     apply_stale_rule(reports, stale_after_days)
 
+    # Write outputs
     save_json(CACHE_PATH, cache)
     save_json(PENDING_PATH, still_pending)
     save_json(REPORTS_PATH, reports)
