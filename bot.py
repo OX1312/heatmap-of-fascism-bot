@@ -259,30 +259,20 @@ def _nearest_point_on_polyline_m(
 
 def snap_to_public_way(lat: float, lon: float, user_agent: str) -> tuple[float, float, str]:
     """
-    Snap point onto nearest public 'way' so we don't land in road center / private areas.
+    Snap point onto nearest *public* way so we don't land in road center / private areas.
+    Prefer walkable ways; if only road found, offset to the side.
+    Also avoid ending up on/inside buildings (very small-radius building check).
     Returns: (lat, lon, note) where note is "" if no snap happened.
     """
-    # Search radius in meters (OSM density varies)
-    R_M = 80
+    # Base search radius in meters (OSM density varies)
+    R_M = 120
+    # If no walkable way found, run a second pass for walkways with bigger radius
+    R_WALK_M = 220
 
-    q = f"""
-[out:json][timeout:25];
-(
-  way(around:{R_M},{lat},{lon})["highway"];
-);
-out tags geom;
-"""
-    data = _overpass_post(q, user_agent)
-    if not data or not isinstance(data, dict):
-        return lat, lon, ""
-
-    elems = data.get("elements") or []
-    if not isinstance(elems, list) or not elems:
-        return lat, lon, ""
-
-    # Preference order: walkable ways first
-    walk_hw = {"footway","path","pedestrian","steps","cycleway"}
-    road_hw  = {"living_street","residential","service","unclassified","tertiary","secondary","primary"}
+    # Offset when we only have a road (meters, sideways)
+    OFFSET_ROAD_M = 10.0
+    # Extra push if we still end up near a building
+    OFFSET_BUILDING_M = 14.0
 
     lat0, lon0 = lat, lon
 
@@ -295,42 +285,100 @@ out tags geom;
         foot = (tags.get("foot") or "").strip().lower()
         if foot in {"no","private"}:
             return False
+        # common private-ish service patterns
+        if (tags.get("highway") or "").strip().lower() == "service":
+            svc = (tags.get("service") or "").strip().lower()
+            if svc in {"driveway","parking_aisle"}:
+                return False
+        indoor = (tags.get("indoor") or "").strip().lower()
+        if indoor in {"yes","1","true"}:
+            return False
         return True
 
-    # Collect candidates with geometry
-    cands: list[tuple[str, list[tuple[float,float]], dict]] = []
-    for e in elems:
-        if e.get("type") != "way":
-            continue
-        tags = e.get("tags") or {}
-        hw = (tags.get("highway") or "").strip().lower()
-        if not hw:
-            continue
-        if not is_public(tags):
-            continue
-        geom = e.get("geometry") or []
-        if not isinstance(geom, list) or len(geom) < 2:
-            continue
-        pts = []
-        ok = True
-        for g in geom:
-            if not isinstance(g, dict) or "lat" not in g or "lon" not in g:
-                ok = False
-                break
-            pts.append((float(g["lat"]), float(g["lon"])))
-        if not ok:
-            continue
-        cands.append((hw, pts, tags))
+    def building_nearby(qlat: float, qlon: float, r_m: int = 6) -> bool:
+        # Very small radius: we only want to catch "landed on building" cases.
+        q = f"""
+[out:json][timeout:25];
+(
+  way(around:{r_m},{qlat},{qlon})["building"];
+  relation(around:{r_m},{qlat},{qlon})["building"];
+);
+out ids;
+""".strip()
+        data = _overpass_post(q, user_agent)
+        if not data or not isinstance(data, dict):
+            return False
+        elems = data.get("elements") or []
+        return bool(elems)
 
+    def fetch_highways(r_m: int, only_walk: bool) -> list:
+        if only_walk:
+            # only walkable highway types
+            q = f"""
+[out:json][timeout:25];
+(
+  way(around:{r_m},{lat0},{lon0})["highway"~"^(footway|path|pedestrian|steps|cycleway)$"];
+);
+out tags geom;
+""".strip()
+        else:
+            q = f"""
+[out:json][timeout:25];
+(
+  way(around:{r_m},{lat0},{lon0})["highway"];
+);
+out tags geom;
+""".strip()
+        data = _overpass_post(q, user_agent)
+        if not data or not isinstance(data, dict):
+            return []
+        elems = data.get("elements") or []
+        if not isinstance(elems, list):
+            return []
+        return elems
+
+    # Preference order: walkable ways first
+    walk_hw = {"footway","path","pedestrian","steps","cycleway"}
+    road_hw  = {"living_street","residential","service","unclassified","tertiary","secondary","primary"}
+
+    def collect_candidates(elems) -> list:
+        cands: list[tuple[str, list[tuple[float,float]], dict]] = []
+        for e in elems:
+            if e.get("type") != "way":
+                continue
+            tags = e.get("tags") or {}
+            hw = (tags.get("highway") or "").strip().lower()
+            if not hw:
+                continue
+            if not is_public(tags):
+                continue
+            geom = e.get("geometry") or []
+            if not isinstance(geom, list) or len(geom) < 2:
+                continue
+            pts = []
+            ok = True
+            for g in geom:
+                if not isinstance(g, dict) or "lat" not in g or "lon" not in g:
+                    ok = False
+                    break
+                pts.append((float(g["lat"]), float(g["lon"])))
+            if not ok:
+                continue
+            kind = "walk" if hw in walk_hw else ("road" if hw in road_hw else "other")
+            if kind == "other":
+                continue
+            cands.append((hw, pts, tags))
+        return cands
+
+    elems = fetch_highways(R_M, only_walk=False)
+    cands = collect_candidates(elems)
     if not cands:
         return lat, lon, ""
 
     # Find best walk candidate, else best road candidate
     best = None  # (lat, lon, dist, seg_dir, hw, kind)
     for hw, pts, tags in cands:
-        kind = "walk" if hw in walk_hw else ("road" if hw in road_hw else "other")
-        if kind == "other":
-            continue
+        kind = "walk" if hw in walk_hw else "road"
         plat, plon, dist, segdir = _nearest_point_on_polyline_m(lat0, lon0, pts, lat0, lon0)
         if best is None:
             best = (plat, plon, dist, segdir, hw, kind)
@@ -346,25 +394,56 @@ out tags geom;
 
     plat, plon, dist, (ux,uy), hw, kind = best
 
-    # If we snapped onto a road (no walk nearby), push a bit towards the original point
-    # to avoid "middle of street" visuals.
+    # If we ended up with road-only: try to find walkways in a second pass
     if kind == "road":
-        OFFSET_M = 6.0
-        # Vector from snapped -> original in meters
-        sx, sy = _xy_m(lat0, lon0, plat, plon)
-        ox, oy = _xy_m(lat0, lon0, lat0, lon0)
-        vx, vy = (ox - sx), (oy - sy)
-        vlen = (vx*vx + vy*vy) ** 0.5
-        if vlen < 1e-6:
-            # fall back to segment normal
-            nx, ny = (-uy, ux)
-        else:
-            nx, ny = (vx / vlen, vy / vlen)
-        sx2, sy2 = (sx + nx*OFFSET_M), (sy + ny*OFFSET_M)
-        plat, plon = _latlon_from_xy(lat0, lon0, sx2, sy2)
-        return plat, plon, f"snap_road:{hw}"
+        elems2 = fetch_highways(R_WALK_M, only_walk=True)
+        cands2 = collect_candidates(elems2)
+        best_walk = None
+        for hw2, pts2, tags2 in cands2:
+            plat2, plon2, dist2, segdir2 = _nearest_point_on_polyline_m(lat0, lon0, pts2, lat0, lon0)
+            if best_walk is None or dist2 < best_walk[2]:
+                best_walk = (plat2, plon2, dist2, segdir2, hw2, "walk")
+        # Accept if not crazy far
+        if best_walk is not None and best_walk[2] <= 45.0:
+            plat, plon, dist, (ux,uy), hw, kind = best_walk
 
-    return plat, plon, f"snap_walk:{hw}"
+    note = f"snap_{kind}:{hw}"
+
+    # Road offset: push sideways off the centerline (towards reporter side if possible)
+    if kind == "road":
+        # perpendicular normal of segment
+        nx, ny = (-uy, ux)
+
+        # Choose side that points roughly towards the original point (reduces wrong-side jumps)
+        sx, sy = _xy_m(lat0, lon0, plat, plon)   # snapped -> meters
+        ox, oy = _xy_m(lat0, lon0, lat0, lon0)   # original -> (0,0)
+        vx, vy = (ox - sx), (oy - sy)            # snapped -> original
+        if (vx*nx + vy*ny) < 0:
+            nx, ny = (-nx, -ny)
+
+        sx2, sy2 = (sx + nx*OFFSET_ROAD_M), (sy + ny*OFFSET_ROAD_M)
+        plat, plon = _latlon_from_xy(lat0, lon0, sx2, sy2)
+        note = f"snap_road_offset:{hw}"
+
+    # Building avoidance (tiny radius check)
+    if building_nearby(plat, plon, r_m=6):
+        # push further along last known normal if road, else small push perpendicular to walk segment
+        if kind == "road":
+            # reuse same perpendicular direction by recomputing approx from last segment dir
+            nx, ny = (-uy, ux)
+            sx, sy = _xy_m(lat0, lon0, plat, plon)
+            sx2, sy2 = (sx + nx*OFFSET_BUILDING_M), (sy + ny*OFFSET_BUILDING_M)
+            plat, plon = _latlon_from_xy(lat0, lon0, sx2, sy2)
+            note += "|avoid_building"
+        else:
+            # walk: minimal nudge to reduce "inside building" hits
+            nx, ny = (-uy, ux)
+            sx, sy = _xy_m(lat0, lon0, plat, plon)
+            sx2, sy2 = (sx + nx*4.0), (sy + ny*4.0)
+            plat, plon = _latlon_from_xy(lat0, lon0, sx2, sy2)
+            note += "|avoid_building"
+
+    return plat, plon, note
 
 # =========================
 # LOCATION PARSE
@@ -649,6 +728,46 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str) -> List[Dict[str, Any]]:
 class StatusDeleted(Exception):
     pass
 
+
+def status_exists(cfg: dict, status_id: str) -> bool:
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/statuses/{status_id}"
+    headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+    r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+    if r.status_code in (404, 410):
+        return False
+    r.raise_for_status()
+    return True
+
+def prune_deleted_published(cfg: dict, reports: dict) -> int:
+    feats = reports.get("features") or []
+    keep = []
+    removed = 0
+
+    for f in feats:
+        props = (f.get("properties") or {})
+        item_id = str(props.get("id") or "")
+        status_id = str(props.get("status_id") or "")
+
+        # fallback: derive from "masto-<digits>"
+        if not status_id and item_id.startswith("masto-"):
+            status_id = item_id.split("masto-", 1)[1].strip()
+
+        if status_id.isdigit():
+            try:
+                if not status_exists(cfg, status_id):
+                    removed += 1
+                    continue
+            except Exception:
+                # API error -> do NOT delete
+                pass
+
+        keep.append(f)
+
+    if removed:
+        reports["features"] = keep
+    return removed
+
 def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
     url = f"{instance}/api/v1/statuses/{status_id}/favourited_by"
@@ -685,6 +804,26 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         print(f"{ts} reply ERROR in_reply_to={in_reply_to_id} err={e!r}")
         return False
+def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to_id: str, text: str) -> bool:
+    """Ensure we reply at most once per status+type. Persists in cache_geocode.json."""
+    try:
+        rep = cache.setdefault("_replies", {})
+        if rep.get(key):
+            return True
+        ok = post_public_reply(cfg, in_reply_to_id, text)
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        if ok:
+            rep[key] = ts
+            save_json(CACHE_PATH, cache)  # persist immediately to avoid spam on restart
+            print(f"{ts} reply OK key={key} status={in_reply_to_id}")
+        else:
+            print(f"{ts} reply FAILED key={key} status={in_reply_to_id}")
+        return ok
+    except Exception as e:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} reply ERROR key={key} status={in_reply_to_id} err={e!r}")
+        return False
+
 
 def build_reply_ok() -> str:
     # A) Alles top
@@ -821,6 +960,8 @@ def make_product_feature(
     *,
     item_id: str,
     source_url: str,
+    status_id: Optional[str],
+    instance_url: Optional[str],
     status: str,  # present | removed | unknown
     sticker_type: str,
     created_date: str,
@@ -840,6 +981,8 @@ def make_product_feature(
         "properties": {
             "id": item_id,
             "source": source_url,
+            "status_id": (str(status_id) if status_id else None),
+            "instance_url": (str(instance_url) if instance_url else None),
 
             "status": status,
             "sticker_type": sticker_type,
@@ -1015,7 +1158,7 @@ def main():
                 "error": "missing_mention",
                 "replied": [],
             }
-            if post_public_reply(cfg, str(status_id), build_reply_missing([
+            if reply_once(cfg, cache, f"missing:{status_id}", str(status_id), build_reply_missing([
                 "Foto",
                 "#sticker_report oder #sticker_removed",
                 "Ort: Koordinaten ODER Kreuzung ODER Adresse",
@@ -1039,12 +1182,21 @@ def main():
         location_text = ""
         removed_at: Optional[str] = None
 
+        snap_note = ""
+
         if coords:
             lat, lon = coords
             geocode_method = "gps"
             accuracy_m = ACC_GPS
             radius_m = ACC_GPS
             location_text = f"{lat}, {lon}"
+
+            # Snap away from road center / private areas (prefer footways)
+            _slat, _slon, _snote = snap_to_public_way(float(lat), float(lon), cfg["user_agent"])
+            if _snote:
+                lat, lon = _slat, _slon
+                snap_note = _snote
+                geocode_method = f"{geocode_method}+{_snote}"
         else:
             location_text = q or ""
             q_norm = normalize_query(q or "")
@@ -1054,6 +1206,13 @@ def main():
                 geocode_method = str(cache[q].get("method", "cache"))
                 accuracy_m = int(cache[q].get("accuracy_m", ACC_DEFAULT))
                 radius_m = int(cache[q].get("radius_m", accuracy_m))
+
+                # Snap away from road center / private areas (prefer footways)
+                _slat, _slon, _snote = snap_to_public_way(float(lat), float(lon), cfg["user_agent"])
+                if _snote:
+                    lat, lon = _slat, _slon
+                    snap_note = _snote
+                    geocode_method = f"{geocode_method}+{_snote}"
             else:
                 coords2, method = geocode_query_worldwide(q, cfg["user_agent"])
                 if not coords2:
@@ -1087,7 +1246,7 @@ def main():
                     added_pending += 1
 
                     # public reply under the post
-                    ok = post_public_reply(cfg, str(status_id), build_needs_info_reply(q or ""))
+                    ok = reply_once(cfg, cache, f"needs:{status_id}", str(status_id), build_needs_info_reply(q or ""))
                     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
                     if ok:
                         print(f"{ts} needs_info_reply status={status_id} OK")
@@ -1097,6 +1256,13 @@ def main():
 
                 lat, lon = coords2
                 geocode_method = method
+
+                # Snap away from road center / private areas (prefer footways)
+                _slat, _slon, _snote = snap_to_public_way(float(lat), float(lon), cfg["user_agent"])
+                if _snote:
+                    lat, lon = _slat, _slon
+                    snap_note = _snote
+                    geocode_method = f"{geocode_method}+{_snote}"
 
                 if method == "overpass_node":
                     accuracy_m = ACC_NODE
@@ -1116,6 +1282,7 @@ def main():
                     "method": geocode_method,
                     "accuracy_m": accuracy_m,
                     "radius_m": radius_m,
+                    "snap_note": snap_note,
                     "q_norm": q_norm
                 }
 
@@ -1154,7 +1321,7 @@ def main():
 
         # One-time public ack for PENDING (avoid spam)
         if not item.get("replied_pending"):
-            okp = post_public_reply(cfg, str(status_id), build_reply_pending())
+            okp = reply_once(cfg, cache, f"pending:{status_id}", str(status_id), build_reply_pending())
             if okp:
                 item["replied_pending"] = True
 
@@ -1191,6 +1358,8 @@ def main():
         new_feat = make_product_feature(
             item_id=item_id,
             source_url=str(item["source"]),
+            status_id=str(item.get("status_id")) if item.get("status_id") else None,
+            instance_url=str(cfg.get("instance_url")) if cfg.get("instance_url") else None,
             status=new_status,
             sticker_type=str(item.get("sticker_type") or "unknown"),
             created_date=created_date,
@@ -1267,15 +1436,18 @@ def main():
             reports_ids.add(item_id)
             published += 1
 
-        # A) OK reply once (after successful publish)
-        if not item.get("replied_ok"):
-            if post_public_reply(cfg, str(item["status_id"]), build_reply_ok()):
-                item["replied_ok"] = True
-
+        # OK reply disabled (pending reply is enough; prevents spam)
+        # if not item.get("replied_ok"):
+        #     if reply_once(cfg, cache, f"ok:{item['status_id']}", str(item["status_id"]), build_reply_ok()):
+        #         item["replied_ok"] = True
         time.sleep(DELAY_FAV_CHECK)
 
     # 3) Stale rule: present -> unknown after N days
     apply_stale_rule(reports, stale_after_days)
+    removed = prune_deleted_published(cfg, reports)
+    if removed:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
+        print(f"{ts} prune_deleted_published removed={removed}")
 
     # Write outputs
     save_json(CACHE_PATH, cache)
