@@ -1,8 +1,16 @@
-secrets.json
-pending.json
-cache_geocode.json
-reports.geojson
+# logs / runtime
+*.log
+bot.launchd.log
+bot.log
+bot_run.log
+
+# accidental file
+PY
+
+# python
 __pycache__/
 *.pyc
 .DS_Store
-trusted_accounts.json
+
+# secrets
+secrets.json

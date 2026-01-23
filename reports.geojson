@@ -58,6 +58,36 @@
         ],
         "notes": ""
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.9849138,
+          53.5639472
+        ]
+      },
+      "properties": {
+        "id": "masto-115941192435184817",
+        "source": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115941192435184817",
+        "status": "present",
+        "sticker_type": "unknown",
+        "first_seen": "2026-01-22",
+        "last_seen": "2026-01-22",
+        "seen_count": 11,
+        "removed_at": null,
+        "stale_after_days": 30,
+        "accuracy_m": 50,
+        "radius_m": 50,
+        "geocode_method": "fallback",
+        "location_text": "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg",
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/941/191/493/405/649/original/5aff87712baefd51.jpg",
+          "https://files.mastodon.social/media_attachments/files/115/941/438/599/191/113/original/69139f7cc87ab409.jpg"
+        ],
+        "notes": ""
+      }
     }
   ]
 }

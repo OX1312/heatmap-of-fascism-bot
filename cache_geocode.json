@@ -7,5 +7,14 @@
     "accuracy_m": 25,
     "radius_m": 25,
     "q_norm": "Arnimstrasse 24, Luebeck"
+  },
+  "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg": {
+    "lat": 53.5639472,
+    "lon": 9.9849138,
+    "ts": 1769124868,
+    "method": "fallback",
+    "accuracy_m": 50,
+    "radius_m": 50,
+    "q_norm": "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg"
   }
 }

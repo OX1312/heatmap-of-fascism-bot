@@ -39,6 +39,14 @@ from datetime import datetime, timezone
 
 import requests
 
+# --- TIMESTAMP_PRINT ---
+import builtins as _builtins
+import datetime as _dt
+_print = _builtins.print
+def print(*args, **kwargs):
+    _print(_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), *args, **kwargs)
+# --- /TIMESTAMP_PRINT ---
+
 # =========================
 # FILES
 # =========================
@@ -194,9 +202,205 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * R * math.asin(math.sqrt(a))
 
+
+# =========================
+# SNAP TO PUBLIC WAYS
+# =========================
+def _xy_m(lat0: float, lon0: float, lat: float, lon: float) -> tuple[float, float]:
+    """Equirectangular projection around (lat0, lon0) -> meters."""
+    R = 6371000.0
+    x = math.radians(lon - lon0) * R * math.cos(math.radians(lat0))
+    y = math.radians(lat - lat0) * R
+    return x, y
+
+def _latlon_from_xy(lat0: float, lon0: float, x: float, y: float) -> tuple[float, float]:
+    R = 6371000.0
+    lat = lat0 + math.degrees(y / R)
+    lon = lon0 + math.degrees(x / (R * math.cos(math.radians(lat0))))
+    return lat, lon
+
+def _nearest_point_on_polyline_m(
+    lat0: float, lon0: float,
+    pts: list[tuple[float,float]],
+    qlat: float, qlon: float
+) -> tuple[float,float,float,tuple[float,float]]:
+    """
+    Returns: (best_lat, best_lon, best_dist_m, best_seg_dir_xy_unit)
+    best_seg_dir_xy_unit is (ux,uy) of the segment direction in meters.
+    """
+    qx, qy = _xy_m(lat0, lon0, qlat, qlon)
+    best = None
+
+    for i in range(len(pts) - 1):
+        a_lat, a_lon = pts[i]
+        b_lat, b_lon = pts[i + 1]
+        ax, ay = _xy_m(lat0, lon0, a_lat, a_lon)
+        bx, by = _xy_m(lat0, lon0, b_lat, b_lon)
+        dx, dy = bx - ax, by - ay
+        seg2 = dx*dx + dy*dy
+        if seg2 <= 1e-9:
+            continue
+        t = ((qx - ax)*dx + (qy - ay)*dy) / seg2
+        if t < 0.0: t = 0.0
+        if t > 1.0: t = 1.0
+        px, py = ax + t*dx, ay + t*dy
+        dist = ((qx - px)**2 + (qy - py)**2) ** 0.5
+
+        seg_len = (seg2 ** 0.5)
+        ux, uy = dx/seg_len, dy/seg_len
+
+        if best is None or dist < best[2]:
+            plat, plon = _latlon_from_xy(lat0, lon0, px, py)
+            best = (plat, plon, dist, (ux, uy))
+
+    if best is None:
+        return qlat, qlon, float("inf"), (1.0, 0.0)
+    return best
+
+def snap_to_public_way(lat: float, lon: float, user_agent: str) -> tuple[float, float, str]:
+    """
+    Snap point onto nearest public 'way' so we don't land in road center / private areas.
+    Returns: (lat, lon, note) where note is "" if no snap happened.
+    """
+    # Search radius in meters (OSM density varies)
+    R_M = 80
+
+    q = f"""
+[out:json][timeout:25];
+(
+  way(around:{R_M},{lat},{lon})["highway"];
+);
+out tags geom;
+"""
+    data = _overpass_post(q, user_agent)
+    if not data or not isinstance(data, dict):
+        return lat, lon, ""
+
+    elems = data.get("elements") or []
+    if not isinstance(elems, list) or not elems:
+        return lat, lon, ""
+
+    # Preference order: walkable ways first
+    walk_hw = {"footway","path","pedestrian","steps","cycleway"}
+    road_hw  = {"living_street","residential","service","unclassified","tertiary","secondary","primary"}
+
+    lat0, lon0 = lat, lon
+
+    def is_public(tags: dict) -> bool:
+        if not isinstance(tags, dict):
+            return True
+        acc = (tags.get("access") or "").strip().lower()
+        if acc in {"private","no"}:
+            return False
+        foot = (tags.get("foot") or "").strip().lower()
+        if foot in {"no","private"}:
+            return False
+        return True
+
+    # Collect candidates with geometry
+    cands: list[tuple[str, list[tuple[float,float]], dict]] = []
+    for e in elems:
+        if e.get("type") != "way":
+            continue
+        tags = e.get("tags") or {}
+        hw = (tags.get("highway") or "").strip().lower()
+        if not hw:
+            continue
+        if not is_public(tags):
+            continue
+        geom = e.get("geometry") or []
+        if not isinstance(geom, list) or len(geom) < 2:
+            continue
+        pts = []
+        ok = True
+        for g in geom:
+            if not isinstance(g, dict) or "lat" not in g or "lon" not in g:
+                ok = False
+                break
+            pts.append((float(g["lat"]), float(g["lon"])))
+        if not ok:
+            continue
+        cands.append((hw, pts, tags))
+
+    if not cands:
+        return lat, lon, ""
+
+    # Find best walk candidate, else best road candidate
+    best = None  # (lat, lon, dist, seg_dir, hw, kind)
+    for hw, pts, tags in cands:
+        kind = "walk" if hw in walk_hw else ("road" if hw in road_hw else "other")
+        if kind == "other":
+            continue
+        plat, plon, dist, segdir = _nearest_point_on_polyline_m(lat0, lon0, pts, lat0, lon0)
+        if best is None:
+            best = (plat, plon, dist, segdir, hw, kind)
+        else:
+            # Prefer walk over road; within same kind choose nearest
+            if best[5] != "walk" and kind == "walk":
+                best = (plat, plon, dist, segdir, hw, kind)
+            elif best[5] == kind and dist < best[2]:
+                best = (plat, plon, dist, segdir, hw, kind)
+
+    if best is None:
+        return lat, lon, ""
+
+    plat, plon, dist, (ux,uy), hw, kind = best
+
+    # If we snapped onto a road (no walk nearby), push a bit towards the original point
+    # to avoid "middle of street" visuals.
+    if kind == "road":
+        OFFSET_M = 6.0
+        # Vector from snapped -> original in meters
+        sx, sy = _xy_m(lat0, lon0, plat, plon)
+        ox, oy = _xy_m(lat0, lon0, lat0, lon0)
+        vx, vy = (ox - sx), (oy - sy)
+        vlen = (vx*vx + vy*vy) ** 0.5
+        if vlen < 1e-6:
+            # fall back to segment normal
+            nx, ny = (-uy, ux)
+        else:
+            nx, ny = (vx / vlen, vy / vlen)
+        sx2, sy2 = (sx + nx*OFFSET_M), (sy + ny*OFFSET_M)
+        plat, plon = _latlon_from_xy(lat0, lon0, sx2, sy2)
+        return plat, plon, f"snap_road:{hw}"
+
+    return plat, plon, f"snap_walk:{hw}"
+
 # =========================
 # LOCATION PARSE
 # =========================
+
+def heuristic_fix_crossing(query: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return q
+
+    # A / B Hamburg  ->  A / B, Hamburg  (missing comma before city)
+    if ("," not in q) and any(sep in q for sep in (" / ", " x ", " & ")):
+        parts = q.rsplit(" ", 1)
+        if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+            return f"{parts[0].strip()}, {parts[1].strip()}"
+
+    # A, B Hamburg   ->  A / B, Hamburg  (comma-separated streets, city at end)
+    if ("/" not in q) and (" x " not in q) and (" & " not in q) and ("," in q):
+        parts = [p.strip() for p in q.split(",") if p.strip()]
+        if len(parts) == 2:
+            a = parts[0]
+            rest = parts[1]
+            rest_parts = rest.rsplit(" ", 1)
+            if len(rest_parts) == 2 and rest_parts[0].strip() and rest_parts[1].strip():
+                b = rest_parts[0].strip()
+                city = rest_parts[1].strip()
+                return f"{a} / {b}, {city}"
+        elif len(parts) >= 3:
+            a = parts[0]
+            city = parts[-1]
+            b = ", ".join(parts[1:-1]).strip()
+            if b and city:
+                return f"{a} / {b}, {city}"
+
+    return q
+
 def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
     """
     Returns:
@@ -223,7 +427,14 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
         if low.startswith("@") and is_pure_mentions(ln):
             continue
 
-        candidate = normalize_location_line(ln)
+        candidate = heuristic_fix_crossing(normalize_location_line(ln))
+
+        # Heuristic: allow missing comma before city for crossings.
+        # Examples: "A / B Hamburg" -> "A / B, Hamburg"
+        if ("," not in candidate) and any(sep in candidate for sep in (" / ", " x ", " & ")):
+            parts = candidate.rsplit(" ", 1)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                candidate = f"{parts[0].strip()}, {parts[1].strip()}"
 
         m = RE_ADDRESS.match(candidate)
         if m:
@@ -435,11 +646,18 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str) -> List[Dict[str, Any]]:
     r.raise_for_status()
     return r.json()
 
+class StatusDeleted(Exception):
+    pass
+
 def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
     url = f"{instance}/api/v1/statuses/{status_id}/favourited_by"
     headers = {"Authorization": f"Bearer {cfg['access_token']}"}
     r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+
+    if r.status_code in (404, 410):
+        raise StatusDeleted(f"status {status_id} deleted ({r.status_code})")
+
     r.raise_for_status()
     return r.json()
 
@@ -456,14 +674,25 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
         }
         r = requests.post(url, headers=headers, data=data, timeout=MASTODON_TIMEOUT_S)
         if r.status_code not in (200, 201):
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            body = (r.text or "")[:200].replace("\n", " ")
+            print(f"{ts} reply FAILED in_reply_to={in_reply_to_id} http={r.status_code} body={body!r}")
             return False
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} reply OK in_reply_to={in_reply_to_id}")
         return True
-    except Exception:
+    except Exception as e:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} reply ERROR in_reply_to={in_reply_to_id} err={e!r}")
         return False
 
 def build_reply_ok() -> str:
     # A) Alles top
     return "Alles top – danke! Der Report ist drin und wird nach dem FAV auf die Karte übernommen. Alerta alerta 🖖"
+
+
+def build_reply_pending() -> str:
+    return "Report erkannt ✅ Bitte FAV (von trusted Accounts), dann kommt der Punkt auf die Karte. Alerta alerta 🖖"
 
 def build_reply_improve(hints: list[str]) -> str:
     # B) Erkannt, aber besser möglich
@@ -494,7 +723,7 @@ def build_needs_info_reply(location_text: str) -> str:
         "• Koordinaten: 53.87, 10.68\n"
         "• Kreuzung: Straße A / Straße B, Stadt\n"
         "• Adresse: Straße 12, Stadt\n"
-        "Und wichtig: Im Text muss @HeatmapofFascism stehen.\n"
+        "Und wichtig: Im Text muss @HeatmapofFascism stehen.\nWenn du den ursprünglichen Post nicht bearbeiten kannst: bitte löschen und neu posten (mit korrektem Ort).\n"
         "Alerta alerta 🖖"
     )
 def load_trusted_set(cfg: Dict[str, Any]) -> set:
@@ -510,11 +739,25 @@ def load_trusted_set(cfg: Dict[str, Any]) -> set:
 
 def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) -> bool:
     if not trusted_set:
+        print(f"{datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')} fav_check status={status_id} trusted_set=EMPTY")
         return False
     try:
         fav_accounts = get_favourited_by(cfg, status_id)
-    except Exception:
+    except Exception as e:
+        print(f"{datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')} fav_check status={status_id} ERROR={e!r}")
         return False
+
+    fav_norm = []
+    for a in (fav_accounts or []):
+        acct = None
+        if isinstance(a, dict):
+            acct = a.get("acct") or a.get("username")
+        else:
+            acct = str(a)
+        fav_norm.append((acct or '').split('@')[0].strip().lower())
+
+    print(f"{datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')} fav_check status={status_id} favs={fav_norm} trusted={sorted(trusted_set)}")
+    return any(x in trusted_set for x in fav_norm)
 
     for acc in fav_accounts:
         acct = (acc.get("acct") or "").split("@")[0].strip().lower()
@@ -672,6 +915,19 @@ def main():
         if it.get('status') != 'NEEDS_INFO' or it.get('error') != 'geocode_failed':
             continue
         q = str(it.get('location_text') or '').strip()
+        # Drop deleted posts (so pending can't get stuck forever)
+        try:
+            _ = get_favourited_by(cfg, str(it.get("status_id") or ""))
+        except StatusDeleted as e:
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} pending_drop_deleted status_id={it.get('status_id')} reason={e}")
+            it["status"] = "DROPPED"
+            it["error"] = "status_deleted"
+            continue
+        except Exception:
+            # Ignore transient API issues here; keep retrying later
+            pass
+
         if not q:
             continue
         q_norm = normalize_query(q)
@@ -831,7 +1087,12 @@ def main():
                     added_pending += 1
 
                     # public reply under the post
-                    post_public_reply(cfg, str(status_id), build_needs_info_reply(q or ""))
+                    ok = post_public_reply(cfg, str(status_id), build_needs_info_reply(q or ""))
+                    ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+                    if ok:
+                        print(f"{ts} needs_info_reply status={status_id} OK")
+                    else:
+                        print(f"{ts} needs_info_reply status={status_id} FAILED")
                     continue
 
                 lat, lon = coords2
@@ -891,6 +1152,12 @@ def main():
         pending_by_source[url] = item
         added_pending += 1
 
+        # One-time public ack for PENDING (avoid spam)
+        if not item.get("replied_pending"):
+            okp = post_public_reply(cfg, str(status_id), build_reply_pending())
+            if okp:
+                item["replied_pending"] = True
+
     # -------------------------
     # 2) Publish approved (FAV)
     # -------------------------
@@ -904,6 +1171,12 @@ def main():
         item_id = str(item.get("id"))
         if item_id in reports_ids:
             continue
+
+        # One-time public ack for existing PENDING items (avoid silent waiting)
+        if not item.get("replied_pending"):
+            okp = post_public_reply(cfg, str(item["status_id"]), build_reply_pending())
+            if okp:
+                item["replied_pending"] = True
 
         ok = is_approved_by_fav(cfg, str(item["status_id"]), trusted_set)
         if not ok:
@@ -1006,10 +1279,12 @@ def main():
 
     # Write outputs
     save_json(CACHE_PATH, cache)
+    still_pending = [it for it in still_pending if it.get('status') != 'DROPPED']
     save_json(PENDING_PATH, still_pending)
     save_json(REPORTS_PATH, reports)
 
-    print(f"Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
+    ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    print(f"{ts} Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
 
 if __name__ == "__main__":
     main()
