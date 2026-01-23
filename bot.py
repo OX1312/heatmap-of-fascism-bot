@@ -780,6 +780,93 @@ def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any
     r.raise_for_status()
     return r.json()
 
+
+def fetch_status(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a status by ID (authoritative delete check).
+    Returns status dict on success, None if cannot check (other instance/no auth).
+    Raises StatusDeleted on 404/410.
+    """
+    inst_cfg = (cfg.get("instance_url") or "").rstrip("/")
+    inst = (instance_url or "").rstrip("/")
+    if not inst or inst != inst_cfg:
+        return None  # can't auth other instances with this token
+
+    url = f"{inst}/api/v1/statuses/{status_id}"
+    headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+    r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+    if r.status_code in (404, 410):
+        raise StatusDeleted(f"status {status_id} deleted ({r.status_code})")
+    r.raise_for_status()
+    return r.json()
+
+def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 200) -> int:
+    """
+    Remove features whose source status was deleted.
+    Budget-limited: checks only N features per run (prevents heavy startup load).
+    Returns: number removed.
+    """
+    feats = reports.get("features") or []
+    if not isinstance(feats, list) or not feats:
+        return 0
+
+    # pick candidates: have status_id+instance_url, not already removed by logic
+    cands = []
+    for idx, f in enumerate(feats):
+        props = (f or {}).get("properties") or {}
+        sid = props.get("status_id")
+        inst = props.get("instance_url")
+        if not sid or not inst:
+            continue
+        # only check "live" statuses
+        if props.get("status") not in ("present", "removed", "unknown"):
+            continue
+        lastv = int(props.get("last_verify_ts") or 0)
+        cands.append((lastv, idx, sid, inst))
+
+    if not cands:
+        return 0
+
+    # oldest verify first
+    cands.sort(key=lambda x: x[0])
+    budget = max(0, int(budget))
+    removed = 0
+    checked = 0
+
+    # iterate and mark/remove
+    to_drop = set()
+    now = int(time.time())
+
+    for _, idx, sid, inst in cands[:budget]:
+        checked += 1
+        try:
+            st = fetch_status(cfg, inst, str(sid))
+            # if we could check (same instance), record verify timestamp
+            if st is not None:
+                feats[idx]["properties"]["last_verify_ts"] = now
+        except StatusDeleted as e:
+            # HARD DROP from geojson => disappears from map
+            to_drop.add(idx)
+            removed += 1
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} verify_drop_deleted status_id={sid} reason={e}")
+        except Exception:
+            # transient error: just record attempt timestamp to avoid hammering
+            try:
+                feats[idx]["properties"]["last_verify_ts"] = now
+            except Exception:
+                pass
+
+    if to_drop:
+        reports["features"] = [f for i, f in enumerate(feats) if i not in to_drop]
+
+    if checked:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} verify_deleted checked={checked} removed={removed}")
+
+    return removed
+
+
 def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bool:
     """Public reply under the original post (no DM). Best-effort."""
     try:
@@ -1098,6 +1185,10 @@ def main():
             it.pop('error', None)
             time.sleep(DELAY_NOMINATIM)
     reports = load_reports()
+    # Budget-limited deletion verification (prevents map points surviving deleted posts)
+    verify_budget = int(cfg.get("verify_budget", 200))
+    verify_deleted_features(reports, cfg, verify_budget)
+
     reports_ids = reports_id_set(reports)
 
     # Dedupe pending by source URL
@@ -1341,7 +1432,7 @@ def main():
 
         # One-time public ack for existing PENDING items (avoid silent waiting)
         if not item.get("replied_pending"):
-            okp = post_public_reply(cfg, str(item["status_id"]), build_reply_pending())
+            okp = reply_once(cfg, cache, f"pending:{item['status_id']}", str(item["status_id"]), build_reply_pending())
             if okp:
                 item["replied_pending"] = True
 
