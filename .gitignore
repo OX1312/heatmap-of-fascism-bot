@@ -25,3 +25,6 @@ event_state.json
 bot.log
 bot.launchd.log
 *_run.log
+
+# virtual env
+.venv/
