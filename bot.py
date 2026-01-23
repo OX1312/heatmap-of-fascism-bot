@@ -868,19 +868,36 @@ def fetch_status(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Opti
         except Exception:
             return None
 
-    # Cross-instance OR no token: if public said 404/410, we cannot prove deletion (could be private)
+    # Public 404/410 is ambiguous (could be private/blocked).
+    # Policy: Only treat as deleted if we can confirm via AUTH on the origin instance.
     if maybe_deleted:
+        inst_cfg = (cfg.get("instance_url") or "").rstrip("/")
+        if inst_cfg and inst.rstrip("/") == inst_cfg and cfg.get("access_token"):
+            try:
+                headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+                r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+                if r.status_code in (404, 410):
+                    raise StatusDeleted(f"status {status_id} deleted (auth {r.status_code})")
+                if r.status_code == 200:
+                    return r.json()
+                if r.status_code in (401, 403):
+                    return None
+                r.raise_for_status()
+            except StatusDeleted:
+                raise
+            except Exception:
+                return None
         return None
 
     return None
 
 def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 200) -> tuple[int, int]:
     """
-    Stable policy:
-    - NEVER delete map pins when the source post disappears.
-    - If we can prove the source is deleted, KEEP the feature but mark it:
-        source_deleted=true, status="unknown" (unless already "removed"), notes += "source deleted".
-    Returns: (checked, marked_deleted)
+    Policy:
+    - If the *source post is deleted* (404/410), the map pin MUST disappear.
+      => HARD DROP the feature from reports.geojson.
+    - #sticker_removed is handled elsewhere and keeps the pin (status="removed").
+    Returns: (checked, removed)
     """
     feats = reports.get("features") or []
     if not isinstance(feats, list) or not feats:
@@ -904,34 +921,31 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
     cands.sort(key=lambda x: x[0])  # oldest first
     budget = max(0, int(budget))
     checked = 0
-    marked = 0
+    removed = 0
+    to_drop = set()
 
     for _, idx, sid, inst in cands[:budget]:
         checked += 1
         try:
             _ = fetch_status(cfg, inst, str(sid))
-            # NOTE: do NOT write last_verify_ts into reports.geojson (keeps repo clean on runs)
+            # NOTE: do NOT write last_verify_ts into reports.geojson (keeps repo clean)
         except StatusDeleted as e:
-            props = feats[idx].setdefault("properties", {})
-            props["source_deleted"] = True
-            if props.get("status") != "removed":
-                props["status"] = "unknown"
-            n = (props.get("notes") or "")
-            if "source deleted" not in n.lower():
-                props["notes"] = (n + " | source deleted").strip(" |")
-            marked += 1
+            to_drop.add(idx)
+            removed += 1
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} verify_mark_deleted_keep status_id={sid} reason={e}")
+            print(f"{ts} verify_drop_deleted status_id={sid} reason={e}")
         except Exception:
-            # transient error -> ignore, also don't stamp last_verify_ts
+            # transient error -> ignore (also don't stamp last_verify_ts)
             pass
+
+    if to_drop:
+        reports["features"] = [f for i, f in enumerate(feats) if i not in to_drop]
 
     if checked:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} verify_deleted checked={checked} marked={marked}")
+        print(f"{ts} verify_deleted checked={checked} removed={removed}")
 
-    return checked, marked
-
+    return checked, removed
 
 
 def derive_status_ref(props: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
@@ -1551,13 +1565,13 @@ def main():
     reports = load_reports()
     # Stable policy checks (do NOT dirty repo on mere "checked")
     verify_budget = int(cfg.get("verify_budget", 200))
-    v_checked, v_marked = verify_deleted_features(reports, cfg, verify_budget)
+    v_checked, v_removed = verify_deleted_features(reports, cfg, verify_budget)
 
     context_budget = int(cfg.get("context_budget", 100))
     ctx_changed = update_features_from_context(reports, cfg, context_budget)
 
     # Persist ONLY when reports content changed (keeps repo clean on normal runs)
-    if (v_marked > 0) or (ctx_changed > 0):
+    if (v_removed > 0) or (ctx_changed > 0):
         save_json(REPORTS_PATH, reports)
 
     reports_ids = reports_id_set(reports)
