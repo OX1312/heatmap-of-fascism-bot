@@ -31,8 +31,8 @@
         "snap_note": "snap_walk:cycleway",
         "status_id": "115933093788529730",
         "instance_url": "https://mastodon.social",
-        "last_verify_ts": 1769157854,
-        "last_context_ts": 1769157854
+        "last_verify_ts": 1769157978,
+        "last_context_ts": 1769157979
       }
     },
     {
@@ -65,8 +65,8 @@
         "snap_note": "snap_walk:footway",
         "status_id": "115933091867662922",
         "instance_url": "https://mastodon.social",
-        "last_verify_ts": 1769157854,
-        "last_context_ts": 1769157854
+        "last_verify_ts": 1769157978,
+        "last_context_ts": 1769157979
       }
     }
   ]
