@@ -753,59 +753,48 @@ def status_exists(cfg: dict, status_id: str) -> bool:
 
 def prune_deleted_published(cfg: dict, reports: dict) -> int:
     """
-    Hotfix policy:
-    - NEVER delete map pins when the source post disappears.
-    - If we are confident the source is deleted, keep the feature but mark it:
-        source_deleted=true, source_deleted_at=ISO timestamp
-      and downgrade status to 'unknown' (keeps the pin but reflects uncertainty).
-    Returns number of newly-marked deleted features.
+    Policy:
+    - If we can CONFIRM the source status is deleted (auth 404/410 on origin instance),
+      DROP the feature from reports.geojson (pin disappears).
+    - #sticker_removed keeps the pin (handled elsewhere via status="removed").
+    Returns number of removed features.
     """
-    from datetime import datetime, timezone
-
     feats = reports.get("features") or []
-    marked = 0
-    ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    if not isinstance(feats, list) or not feats:
+        return 0
+
+    removed = 0
+    kept = []
 
     for f in feats:
-        props = (f.get("properties") or {})
-        item_id = str(props.get("id") or "")
+        props = (f or {}).get("properties") or {}
         status_id = str(props.get("status_id") or "")
 
         # fallback: derive from "masto-<digits>"
-        if not status_id and item_id.startswith("masto-"):
-            status_id = item_id.split("masto-", 1)[1].strip()
+        if not status_id and str(props.get("id") or "").startswith("masto-"):
+            status_id = str(props.get("id")).split("masto-", 1)[1].strip()
 
         if not status_id.isdigit():
+            kept.append(f)
             continue
 
-        # already marked -> nothing to do
-        if props.get("source_deleted") is True:
-            continue
-
-        # Use robust fetch_status if available; only mark when confident.
         try:
-            st = fetch_status(cfg, cfg.get("instance_url", ""), status_id)
-            # st != None means "exists or accessible" -> do nothing
-            if st is not None:
-                continue
-        except StatusDeleted:
-            # confident deletion
-            props["source_deleted"] = True
-            props["source_deleted_at"] = ts
-            # keep pin, downgrade certainty
-            props["status"] = "unknown"
-            # keep id for traceability
-            try:
-                props["status_id"] = int(status_id)
-            except Exception:
-                props["status_id"] = status_id
-            f["properties"] = props
-            marked += 1
+            # fetch_status raises StatusDeleted only when auth-confirmed on origin instance
+            _ = fetch_status(cfg, cfg.get("instance_url", ""), status_id)
+            kept.append(f)
+        except StatusDeleted as e:
+            removed += 1
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} prune_drop_deleted status_id={status_id} reason={e}")
         except Exception:
-            # API/network error -> do nothing (never delete/mark)
-            pass
+            # network/transient -> keep
+            kept.append(f)
 
-    return marked
+    if removed:
+        reports["features"] = kept
+
+    return removed
 
 def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
@@ -867,27 +856,6 @@ def fetch_status(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Opti
             raise
         except Exception:
             return None
-
-    # Public 404/410 is ambiguous (could be private/blocked).
-    # Policy: Only treat as deleted if we can confirm via AUTH on the origin instance.
-    if maybe_deleted:
-        inst_cfg = (cfg.get("instance_url") or "").rstrip("/")
-        if inst_cfg and inst.rstrip("/") == inst_cfg and cfg.get("access_token"):
-            try:
-                headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-                r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
-                if r.status_code in (404, 410):
-                    raise StatusDeleted(f"status {status_id} deleted (auth {r.status_code})")
-                if r.status_code == 200:
-                    return r.json()
-                if r.status_code in (401, 403):
-                    return None
-                r.raise_for_status()
-            except StatusDeleted:
-                raise
-            except Exception:
-                return None
-        return None
 
     return None
 
