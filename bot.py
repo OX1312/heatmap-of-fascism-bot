@@ -876,68 +876,61 @@ def fetch_status(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Opti
 
 def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 200) -> tuple[int, int]:
     """
-    Remove features whose source status was deleted.
-    Budget-limited: checks only N features per run (prevents heavy startup load).
-    Returns: number removed.
+    Stable policy:
+    - NEVER delete map pins when the source post disappears.
+    - If we can prove the source is deleted, KEEP the feature but mark it:
+        source_deleted=true, status="unknown" (unless already "removed"), notes += "source deleted".
+    Returns: (checked, marked_deleted)
     """
     feats = reports.get("features") or []
     if not isinstance(feats, list) or not feats:
-        return 0
+        return 0, 0
 
-    # pick candidates: have status_id+instance_url, not already removed by logic
     cands = []
     for idx, f in enumerate(feats):
         props = (f or {}).get("properties") or {}
         inst, sid = derive_status_ref(props)
         if not sid or not inst:
             continue
-        # only check "live" statuses
         if props.get("status") not in ("present", "removed", "unknown"):
             continue
+        # keep ordering stable; if field missing -> 0
         lastv = int(props.get("last_verify_ts") or 0)
         cands.append((lastv, idx, sid, inst))
 
     if not cands:
-        return 0
+        return 0, 0
 
-    # oldest verify first
-    cands.sort(key=lambda x: x[0])
+    cands.sort(key=lambda x: x[0])  # oldest first
     budget = max(0, int(budget))
-    removed = 0
     checked = 0
-
-    # iterate and mark/remove
-    to_drop = set()
-    now = int(time.time())
+    marked = 0
 
     for _, idx, sid, inst in cands[:budget]:
         checked += 1
         try:
-            st = fetch_status(cfg, inst, str(sid))
-            # if we could check (same instance), record verify timestamp
-            if st is not None:
-                feats[idx]["properties"]["last_verify_ts"] = now
+            _ = fetch_status(cfg, inst, str(sid))
+            # NOTE: do NOT write last_verify_ts into reports.geojson (keeps repo clean on runs)
         except StatusDeleted as e:
-            # HARD DROP from geojson => disappears from map
-            to_drop.add(idx)
-            removed += 1
+            props = feats[idx].setdefault("properties", {})
+            props["source_deleted"] = True
+            if props.get("status") != "removed":
+                props["status"] = "unknown"
+            n = (props.get("notes") or "")
+            if "source deleted" not in n.lower():
+                props["notes"] = (n + " | source deleted").strip(" |")
+            marked += 1
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} verify_drop_deleted status_id={sid} reason={e}")
+            print(f"{ts} verify_mark_deleted_keep status_id={sid} reason={e}")
         except Exception:
-            # transient error: just record attempt timestamp to avoid hammering
-            try:
-                feats[idx]["properties"]["last_verify_ts"] = now
-            except Exception:
-                pass
-
-    if to_drop:
-        reports["features"] = [f for i, f in enumerate(feats) if i not in to_drop]
+            # transient error -> ignore, also don't stamp last_verify_ts
+            pass
 
     if checked:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} verify_deleted checked={checked} removed={removed}")
+        print(f"{ts} verify_deleted checked={checked} marked={marked}")
 
-    return checked, removed
+    return checked, marked
 
 
 
@@ -1078,8 +1071,6 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
         old_type = props.get("sticker_type") or ""
 
         # mark check timestamp regardless (prevents hammering)
-        props["last_context_ts"] = now
-
         # --- 1) check source status (edits)
         try:
             st = fetch_status(cfg, inst, sid)
@@ -1558,15 +1549,15 @@ def main():
             it.pop('error', None)
             time.sleep(DELAY_NOMINATIM)
     reports = load_reports()
-    # Budget-limited deletion verification (prevents map points surviving deleted posts)
+    # Stable policy checks (do NOT dirty repo on mere "checked")
     verify_budget = int(cfg.get("verify_budget", 200))
-    v_checked, v_removed = verify_deleted_features(reports, cfg, verify_budget)
+    v_checked, v_marked = verify_deleted_features(reports, cfg, verify_budget)
 
     context_budget = int(cfg.get("context_budget", 100))
     ctx_changed = update_features_from_context(reports, cfg, context_budget)
 
-    # Persist even when nothing is published (prevents re-check hammering + keeps context edits)
-    if (v_checked > 0) or (v_removed > 0) or (ctx_changed > 0):
+    # Persist ONLY when reports content changed (keeps repo clean on normal runs)
+    if (v_marked > 0) or (ctx_changed > 0):
         save_json(REPORTS_PATH, reports)
 
     reports_ids = reports_id_set(reports)
