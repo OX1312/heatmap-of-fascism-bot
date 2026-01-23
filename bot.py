@@ -78,7 +78,7 @@ RE_ADDRESS = re.compile(r"^(.+?)\s+(\d+[a-zA-Z]?)\s*,\s*(.+)$")  # "Street 12, C
 RE_STREET_CITY = re.compile(r"^(.+?)\s*,\s*(.+)$")  # "Street, City"
 RE_CROSS = re.compile(r"^(.+?)\s*(?:/| x | & )\s*(.+?)\s*,\s*(.+)$", re.IGNORECASE)  # "A / B, City"
 RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(.+?)\s*$", re.IGNORECASE)
-RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
+RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:?\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
 
 # =========================
 # ENDPOINTS / POLITENESS
@@ -1412,6 +1412,12 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
     tags_map = cfg.get("hashtags") or {}
     if not isinstance(tags_map, dict) or not tags_map:
         tags_map = {"sticker_report": "present", "sticker_removed": "removed"}
+
+    # legacy alias support
+    if "report_sticker" in tags_map and "sticker_report" not in tags_map:
+        tags_map["sticker_report"] = tags_map["report_sticker"]
+    if "sticker_report" in tags_map and "report_sticker" not in tags_map:
+        tags_map["report_sticker"] = tags_map["sticker_report"]
 
     for tag, event in tags_map.items():
         statuses = get_hashtag_timeline(cfg, tag)
