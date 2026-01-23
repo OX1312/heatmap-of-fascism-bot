@@ -1,20 +1,20 @@
 {
   "instance_url": "https://mastodon.social",
-
-  "user_agent": "HeatmapOfFascismBot/0.1",
-
+  "user_agent": "HeatmapOfFascismBot/0.2.0",
   "hashtags": {
     "sticker_report": "present",
     "sticker_removed": "removed"
   },
-
   "allowed_reviewers": [
     "HeatmapofFascism"
   ],
-
   "accuracy": {
     "intersection_m": 10,
     "default_m": 25,
     "fallback_m": 50
-  }
+  },
+  "auto_push_reports": false,
+  "auto_push_remote": "origin",
+  "auto_push_branch": "main",
+  "test_mode": true
 }

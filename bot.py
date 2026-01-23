@@ -29,6 +29,17 @@
 # If distance <= max(existing.radius_m, new.radius_m) AND sticker_type matches OR one is "unknown"
 # then UPDATE existing feature (last_seen, seen_count, status, removed_at, media, accuracy/radius tightened)
 
+
+# =========================
+# VERSION / MODES
+# =========================
+__version__ = "0.2.0"
+
+import ssl
+import certifi
+ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
+
+SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 import json
 import re
 import time
@@ -1471,6 +1482,15 @@ def main():
     cfg = load_json(CFG_PATH, None)
     if not cfg:
         raise SystemExit("Missing config.json")
+
+    # TEST MODE gate (stable spec):
+    # - stays ON until stability gates pass
+    # - forces AUTO_PUSH off (manual push fallback)
+    test_mode = bool(cfg.get("test_mode", True))
+    if test_mode:
+        cfg["auto_push_reports"] = False
+
+    print(f"START v={__version__} test_mode={test_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
 
     secrets = load_json(SECRETS_PATH, None)
     if not secrets or not secrets.get("access_token"):
