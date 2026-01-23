@@ -237,10 +237,20 @@ MAX_GEOM_POINTS_PER_STREET = 500
 # IO
 # =========================
 def load_json(path: pathlib.Path, default):
-    if not path.exists():
+    """Load JSON safely.
+    If file is missing or invalid JSON, return default and keep the bot running.
+    """
+    try:
+        if not path.exists():
+            return default
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        try:
+            _append(EVENT_LOG_PATH, f"{_now_iso()} load_json WARN path={path.name} err={e!r} -> default")
+        except Exception:
+            pass
         return default
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 def save_json(path: pathlib.Path, data):
     with path.open("w", encoding="utf-8") as f:
