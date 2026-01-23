@@ -6,8 +6,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          10.7029559,
-          53.8510526
+          10.703079152548417,
+          53.851088138958524
         ]
       },
       "properties": {
@@ -27,7 +27,8 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/933/093/609/721/059/original/aad7157589c9de19.jpeg"
         ],
-        "notes": ""
+        "notes": "",
+        "snap_note": "snap_walk:cycleway"
       }
     },
     {
@@ -35,8 +36,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          10.7129018,
-          53.8743118
+          10.712913737817502,
+          53.87445930980382
         ]
       },
       "properties": {
@@ -56,7 +57,8 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/933/091/662/689/013/original/75309b0366e5799e.jpeg"
         ],
-        "notes": ""
+        "notes": "",
+        "snap_note": "snap_walk:footway"
       }
     },
     {
@@ -64,8 +66,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          9.9849138,
-          53.5639472
+          9.9850151,
+          53.5640479
         ]
       },
       "properties": {
@@ -75,7 +77,7 @@
         "sticker_type": "unknown",
         "first_seen": "2026-01-22",
         "last_seen": "2026-01-22",
-        "seen_count": 11,
+        "seen_count": 18,
         "removed_at": null,
         "stale_after_days": 30,
         "accuracy_m": 50,
@@ -86,7 +88,8 @@
           "https://files.mastodon.social/media_attachments/files/115/941/191/493/405/649/original/5aff87712baefd51.jpg",
           "https://files.mastodon.social/media_attachments/files/115/941/438/599/191/113/original/69139f7cc87ab409.jpg"
         ],
-        "notes": ""
+        "notes": "",
+        "snap_note": "snap_walk:path"
       }
     }
   ]

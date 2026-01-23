@@ -16,5 +16,9 @@
     "accuracy_m": 50,
     "radius_m": 50,
     "q_norm": "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg"
+  },
+  "_replies": {
+    "pending:115941439448105725": "2026-01-23T01:26:38+01:00",
+    "ok:115941439448105725": "2026-01-23T01:26:39+01:00"
   }
 }
