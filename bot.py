@@ -783,22 +783,57 @@ def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any
 
 def fetch_status(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Optional[Dict[str, Any]]:
     """
-    Fetch a status by ID (authoritative delete check).
-    Returns status dict on success, None if cannot check (other instance/no auth).
-    Raises StatusDeleted on 404/410.
+    Robust delete check:
+    1) Public GET (no token). If 200 -> exists (even cross-instance).
+       If 404/410 -> could be deleted OR private -> try auth if possible.
+    2) Auth GET (only if same instance + token). If 200 -> exists.
+       If 404/410 -> deleted.
+    Returns status dict on success, None if cannot decide / transient error.
+    Raises StatusDeleted only when we are confident (auth 404/410).
     """
-    inst_cfg = (cfg.get("instance_url") or "").rstrip("/")
     inst = (instance_url or "").rstrip("/")
-    if not inst or inst != inst_cfg:
-        return None  # can't auth other instances with this token
+    if not inst:
+        return None
 
     url = f"{inst}/api/v1/statuses/{status_id}"
-    headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-    r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
-    if r.status_code in (404, 410):
-        raise StatusDeleted(f"status {status_id} deleted ({r.status_code})")
-    r.raise_for_status()
-    return r.json()
+    maybe_deleted = False
+
+    # --- 1) Public probe (no auth) ---
+    try:
+        r0 = requests.get(url, timeout=MASTODON_TIMEOUT_S)
+        if r0.status_code == 200:
+            return r0.json()
+        if r0.status_code in (404, 410):
+            maybe_deleted = True
+        # 401/403/429/5xx -> inconclusive, fall through to auth if possible
+    except Exception:
+        # network/transient -> inconclusive
+        pass
+
+    # --- 2) Auth probe (only if we can) ---
+    inst_cfg = (cfg.get("instance_url") or "").rstrip("/")
+    token = cfg.get("access_token")
+
+    if inst_cfg and token and inst == inst_cfg:
+        try:
+            headers = {"Authorization": f"Bearer {token}"}
+            r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+            if r.status_code in (404, 410):
+                raise StatusDeleted(f"status {status_id} deleted ({r.status_code})")
+            if r.status_code == 200:
+                return r.json()
+            r.raise_for_status()
+            return None
+        except StatusDeleted:
+            raise
+        except Exception:
+            return None
+
+    # Cross-instance OR no token: if public said 404/410, we cannot prove deletion (could be private)
+    if maybe_deleted:
+        return None
+
+    return None
 
 def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 200) -> int:
     """
