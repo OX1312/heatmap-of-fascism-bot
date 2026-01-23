@@ -31,8 +31,8 @@
         "snap_note": "snap_walk:cycleway",
         "status_id": "115933093788529730",
         "instance_url": "https://mastodon.social",
-        "last_verify_ts": 1769158103,
-        "last_context_ts": 1769158104
+        "last_verify_ts": 1769158147,
+        "last_context_ts": 1769158147
       }
     },
     {
@@ -65,8 +65,8 @@
         "snap_note": "snap_walk:footway",
         "status_id": "115933091867662922",
         "instance_url": "https://mastodon.social",
-        "last_verify_ts": 1769158103,
-        "last_context_ts": 1769158104
+        "last_verify_ts": 1769158147,
+        "last_context_ts": 1769158147
       }
     },
     {
@@ -97,7 +97,9 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/943/525/767/365/490/original/b7b5064dd014192d.jpg"
         ],
-        "notes": ""
+        "notes": "",
+        "last_verify_ts": 1769158147,
+        "last_context_ts": 1769158147
       }
     }
   ]
