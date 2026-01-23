@@ -1935,8 +1935,24 @@ def main():
     save_json(CACHE_PATH, cache)
     still_pending = [it for it in still_pending if it.get('status') != 'DROPPED']
     save_json(PENDING_PATH, still_pending)
-    save_json(REPORTS_PATH, reports)
-    auto_git_push_reports(cfg)
+
+    # reports.geojson: write+push ONLY when content changed (keeps repo clean)
+    reports_dirty = bool(published or removed or ctx_changed or v_removed)
+    if reports_dirty:
+        for f in (reports.get("features") or []):
+            props = (f or {}).get("properties") or {}
+            props.pop("last_verify_ts", None)
+            props.pop("last_context_ts", None)
+        save_json(REPORTS_PATH, reports)
+        # ensure trailing newline
+        try:
+            rp = Path(REPORTS_PATH)
+            t = rp.read_text(encoding="utf-8")
+            if not t.endswith("\n"):
+                rp.write_text(t + "\n", encoding="utf-8")
+        except Exception:
+            pass
+        auto_git_push_reports(cfg)
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     print(f"{ts} Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
