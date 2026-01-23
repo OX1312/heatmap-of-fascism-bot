@@ -1170,7 +1170,7 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
         data = {
             "status": text,
             "in_reply_to_id": str(in_reply_to_id),
-            "visibility": "unlisted",
+            "visibility": "public",
         }
         r = requests.post(url, headers=headers, data=data, timeout=MASTODON_TIMEOUT_S)
         if r.status_code not in (200, 201):
@@ -1435,12 +1435,6 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         if not out.strip():
             return
 
-        # sync first (avoid push rejects)
-        rc, out = run_git(["pull", "--rebase", remote, branch])
-        if rc != 0:
-            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} auto_push ERROR git_pull_rebase rc={rc} out={out!r}")
-            return
 
         rc, out = run_git(["add", "--", relpath])
         if rc != 0:
