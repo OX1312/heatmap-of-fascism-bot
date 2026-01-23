@@ -34,6 +34,7 @@ import re
 import time
 import pathlib
 import math
+import subprocess
 from typing import Optional, Tuple, Dict, Any, List, Iterable
 from datetime import datetime, timezone
 
@@ -740,9 +741,19 @@ def status_exists(cfg: dict, status_id: str) -> bool:
     return True
 
 def prune_deleted_published(cfg: dict, reports: dict) -> int:
+    """
+    Hotfix policy:
+    - NEVER delete map pins when the source post disappears.
+    - If we are confident the source is deleted, keep the feature but mark it:
+        source_deleted=true, source_deleted_at=ISO timestamp
+      and downgrade status to 'unknown' (keeps the pin but reflects uncertainty).
+    Returns number of newly-marked deleted features.
+    """
+    from datetime import datetime, timezone
+
     feats = reports.get("features") or []
-    keep = []
-    removed = 0
+    marked = 0
+    ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
     for f in feats:
         props = (f.get("properties") or {})
@@ -753,20 +764,37 @@ def prune_deleted_published(cfg: dict, reports: dict) -> int:
         if not status_id and item_id.startswith("masto-"):
             status_id = item_id.split("masto-", 1)[1].strip()
 
-        if status_id.isdigit():
+        if not status_id.isdigit():
+            continue
+
+        # already marked -> nothing to do
+        if props.get("source_deleted") is True:
+            continue
+
+        # Use robust fetch_status if available; only mark when confident.
+        try:
+            st = fetch_status(cfg, cfg.get("instance_url", ""), status_id)
+            # st != None means "exists or accessible" -> do nothing
+            if st is not None:
+                continue
+        except StatusDeleted:
+            # confident deletion
+            props["source_deleted"] = True
+            props["source_deleted_at"] = ts
+            # keep pin, downgrade certainty
+            props["status"] = "unknown"
+            # keep id for traceability
             try:
-                if not status_exists(cfg, status_id):
-                    removed += 1
-                    continue
+                props["status_id"] = int(status_id)
             except Exception:
-                # API error -> do NOT delete
-                pass
+                props["status_id"] = status_id
+            f["properties"] = props
+            marked += 1
+        except Exception:
+            # API/network error -> do nothing (never delete/mark)
+            pass
 
-        keep.append(f)
-
-    if removed:
-        reports["features"] = keep
-    return removed
+    return marked
 
 def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
@@ -835,7 +863,7 @@ def fetch_status(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Opti
 
     return None
 
-def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 200) -> int:
+def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 200) -> tuple[int, int]:
     """
     Remove features whose source status was deleted.
     Budget-limited: checks only N features per run (prevents heavy startup load).
@@ -849,8 +877,7 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
     cands = []
     for idx, f in enumerate(feats):
         props = (f or {}).get("properties") or {}
-        sid = props.get("status_id")
-        inst = props.get("instance_url")
+        inst, sid = derive_status_ref(props)
         if not sid or not inst:
             continue
         # only check "live" statuses
@@ -899,7 +926,239 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         print(f"{ts} verify_deleted checked={checked} removed={removed}")
 
-    return removed
+    return checked, removed
+
+
+
+def derive_status_ref(props: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Return (instance_url, status_id) from props.
+    Prefers explicit fields; falls back to parsing props["source"] URL.
+    """
+    sid = props.get("status_id")
+    inst = props.get("instance_url")
+    if sid and inst:
+        return (str(inst).rstrip("/"), str(sid).strip())
+
+    src = (props.get("source") or "").strip()
+    if not src:
+        return (None, None)
+
+    # patterns:
+    # https://host/@user/123
+    # https://host/web/statuses/123
+    m = re.match(r"^https?://([^/]+)/(?:@[^/]+|web/statuses)/(\d+)", src)
+    if m:
+        host, sid2 = m.group(1), m.group(2)
+        return (f"https://{host}", sid2)
+
+    return (None, None)
+
+
+
+def _strip_html_text(html_s: str) -> str:
+    if not html_s:
+        return ""
+    # very small+robust: remove tags + collapse whitespace
+    import html as _html
+    t = re.sub(r"<[^>]+>", " ", str(html_s))
+    t = _html.unescape(t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+def _extract_flags_and_type(text: str) -> tuple[bool, bool, str]:
+    t = (text or "").lower()
+    has_removed = "#sticker_removed" in t
+    has_seen = "#sticker_seen" in t
+
+    # sticker_type: allow "#sticker_type: xxx" anywhere
+    m = re.search(r"#sticker_type\s*:\s*([^\n\r#]+)", text or "", flags=re.IGNORECASE)
+    stype = (m.group(1).strip() if m else "")
+    return has_removed, has_seen, stype
+
+def fetch_context(cfg: Dict[str, Any], instance_url: str, status_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch status context to read replies (descendants).
+    Public-first; if 401/403, try auth only if same instance.
+    Returns dict or None if cannot check.
+    """
+    inst_cfg = (cfg.get("instance_url") or "").rstrip("/")
+    inst = (instance_url or "").rstrip("/")
+    if not inst:
+        return None
+
+    url = f"{inst}/api/v1/statuses/{status_id}/context"
+
+    # 1) public
+    try:
+        r = requests.get(url, timeout=MASTODON_TIMEOUT_S)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code in (404, 410):
+            raise StatusDeleted(f"context {status_id} deleted ({r.status_code})")
+        if r.status_code not in (401, 403):
+            r.raise_for_status()
+    except StatusDeleted:
+        raise
+    except Exception:
+        pass
+
+    # 2) auth (only same instance)
+    if not inst_cfg or inst != inst_cfg:
+        return None
+
+    try:
+        headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+        r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+        if r.status_code in (404, 410):
+            raise StatusDeleted(f"context {status_id} deleted ({r.status_code})")
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code in (401,403):
+            return None
+        r.raise_for_status()
+        return r.json()
+    except StatusDeleted:
+        raise
+    except Exception:
+        return None
+
+def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], budget: int = 100) -> int:
+    """
+    Budget-limited:
+    - checks edits on the source status (sticker_type / removed / seen tags)
+    - checks replies via /context for #sticker_seen / #sticker_removed
+    Updates last_seen / removed_at / status / sticker_type.
+    Returns: number of features changed.
+    """
+    feats = reports.get("features") or []
+    if not isinstance(feats, list) or not feats:
+        return 0
+
+    # pick candidates with status_id+instance_url
+    cands = []
+    for idx, f in enumerate(feats):
+        props = (f or {}).get("properties") or {}
+        inst, sid = derive_status_ref(props)
+        if not sid or not inst:
+            continue
+        # rotate by oldest context-check first
+        lastc = int(props.get("last_context_ts") or 0)
+        cands.append((lastc, idx, str(sid), str(inst)))
+
+    if not cands:
+        return 0
+
+    cands.sort(key=lambda x: x[0])
+    budget = max(0, int(budget))
+    now = int(time.time())
+    changed = 0
+
+    def _ts(siso: str) -> str:
+        # keep ISO seconds from API ("2026-...Z")
+        return (siso or "").replace("Z", "+00:00")
+
+    for _, idx, sid, inst in cands[:budget]:
+        f = feats[idx]
+        props = f["properties"]
+        old_status = props.get("status")
+        old_last = props.get("last_seen")
+        old_removed = props.get("removed_at")
+        old_type = props.get("sticker_type") or ""
+
+        # mark check timestamp regardless (prevents hammering)
+        props["last_context_ts"] = now
+
+        # --- 1) check source status (edits)
+        try:
+            st = fetch_status(cfg, inst, sid)
+        except StatusDeleted as e:
+            # source deleted: keep point, but mark unknown + note (do NOT delete)
+            props["status"] = "unknown"
+            n = (props.get("notes") or "")
+            if "source deleted" not in n.lower():
+                props["notes"] = (n + " | source deleted").strip(" |")
+            changed += 1
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} source_deleted_keep status_id={sid} reason={e}")
+            continue
+        except Exception:
+            st = None
+
+        if st:
+            txt = _strip_html_text(st.get("content") or "")
+            has_removed, has_seen, stype = _extract_flags_and_type(txt)
+
+            if stype and stype != old_type:
+                props["sticker_type"] = stype
+                changed += 1
+
+            # If user edited source to removed/seen, treat as event at "edited_at" else created_at
+            ev_time = _ts(st.get("edited_at") or st.get("created_at") or "")
+            if has_removed and ev_time and ev_time != old_removed:
+                props["status"] = "removed"
+                props["removed_at"] = ev_time
+                props["last_seen"] = ev_time
+                changed += 1
+            elif has_seen and ev_time and ev_time != old_last:
+                props["last_seen"] = ev_time
+                props["seen_count"] = int(props.get("seen_count") or 0) + 1
+                if props.get("status") != "removed":
+                    props["status"] = "present"
+                changed += 1
+
+        # --- 2) check replies (context descendants)
+        try:
+            ctx = fetch_context(cfg, inst, sid)
+        except StatusDeleted:
+            # already handled above if fetch_status caught it; ignore here
+            ctx = None
+        except Exception:
+            ctx = None
+
+        if ctx and isinstance(ctx, dict):
+            desc = ctx.get("descendants") or []
+            best_seen = None   # (iso, type)
+            best_removed = None
+
+            for d in desc:
+                if not isinstance(d, dict):
+                    continue
+                d_txt = _strip_html_text(d.get("content") or "")
+                has_removed, has_seen, stype = _extract_flags_and_type(d_txt)
+                d_time = _ts(d.get("created_at") or "")
+                if stype and stype != (props.get("sticker_type") or ""):
+                    props["sticker_type"] = stype
+                    changed += 1
+                if has_seen and d_time:
+                    if (best_seen is None) or (d_time > best_seen[0]):
+                        best_seen = (d_time, )
+                if has_removed and d_time:
+                    if (best_removed is None) or (d_time > best_removed[0]):
+                        best_removed = (d_time, )
+
+            # Apply the newest event (removed wins if later)
+            if best_removed and (not props.get("removed_at") or best_removed[0] > str(props.get("removed_at"))):
+                props["status"] = "removed"
+                props["removed_at"] = best_removed[0]
+                props["last_seen"] = best_removed[0]
+                changed += 1
+            elif best_seen and (not props.get("last_seen") or best_seen[0] > str(props.get("last_seen"))):
+                props["last_seen"] = best_seen[0]
+                props["seen_count"] = int(props.get("seen_count") or 0) + 1
+                if props.get("status") != "removed":
+                    props["status"] = "present"
+                changed += 1
+
+        # normalize: removed implies not "present"
+        if props.get("status") == "removed" and not props.get("removed_at"):
+            props["removed_at"] = props.get("last_seen") or props.get("first_seen")
+
+    if changed:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} context_update changed={changed} checked={min(len(cands), budget)}")
+
+    return changed
 
 
 def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bool:
@@ -1144,6 +1403,71 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
             yield tag, event, st
         time.sleep(DELAY_TAG_FETCH)
 
+
+def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
+    """
+    Optional: auto-commit + push reports.geojson after publish.
+    Enabled by config.json: "auto_push_reports": true
+    """
+    try:
+        if not cfg.get("auto_push_reports"):
+            return
+
+        remote = str(cfg.get("auto_push_remote", "origin"))
+        branch = str(cfg.get("auto_push_branch", "main"))
+
+        def run_git(args):
+            r = subprocess.run(
+                ["git"] + args,
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True
+            )
+            out = ((r.stdout or "") + (r.stderr or "")).strip()
+            return r.returncode, out
+
+        # only if reports.geojson changed
+        rc, out = run_git(["status", "--porcelain", "--", relpath])
+        if rc != 0:
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} auto_push ERROR git_status rc={rc} out={out!r}")
+            return
+        if not out.strip():
+            return
+
+        # sync first (avoid push rejects)
+        rc, out = run_git(["pull", "--rebase", remote, branch])
+        if rc != 0:
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} auto_push ERROR git_pull_rebase rc={rc} out={out!r}")
+            return
+
+        rc, out = run_git(["add", "--", relpath])
+        if rc != 0:
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} auto_push ERROR git_add rc={rc} out={out!r}")
+            return
+
+        tsmsg = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        msg = f"Auto-publish reports ({tsmsg})"
+        rc, out = run_git(["commit", "-m", msg])
+        if rc != 0:
+            # allow "nothing to commit" etc.
+            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            print(f"{ts} auto_push WARN git_commit rc={rc} out={out!r}")
+            return
+
+        rc, out = run_git(["push", remote, f"HEAD:{branch}"])
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        if rc == 0:
+            print(f"{ts} auto_push OK remote={remote} branch={branch} file={relpath}")
+        else:
+            print(f"{ts} auto_push ERROR git_push rc={rc} out={out!r}")
+
+    except Exception as e:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} auto_push ERROR exc={e!r}")
+
 def main():
     # Ensure baseline files exist
     ensure_object_file(CACHE_PATH)
@@ -1222,7 +1546,14 @@ def main():
     reports = load_reports()
     # Budget-limited deletion verification (prevents map points surviving deleted posts)
     verify_budget = int(cfg.get("verify_budget", 200))
-    verify_deleted_features(reports, cfg, verify_budget)
+    v_checked, v_removed = verify_deleted_features(reports, cfg, verify_budget)
+
+    context_budget = int(cfg.get("context_budget", 100))
+    ctx_changed = update_features_from_context(reports, cfg, context_budget)
+
+    # Persist even when nothing is published (prevents re-check hammering + keeps context edits)
+    if (v_checked > 0) or (v_removed > 0) or (ctx_changed > 0):
+        save_json(REPORTS_PATH, reports)
 
     reports_ids = reports_id_set(reports)
 
@@ -1569,7 +1900,7 @@ def main():
         time.sleep(DELAY_FAV_CHECK)
 
     # 3) Stale rule: present -> unknown after N days
-    apply_stale_rule(reports, stale_after_days)
+    # stale rule disabled (no auto-expiry)
     removed = prune_deleted_published(cfg, reports)
     if removed:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
@@ -1580,6 +1911,7 @@ def main():
     still_pending = [it for it in still_pending if it.get('status') != 'DROPPED']
     save_json(PENDING_PATH, still_pending)
     save_json(REPORTS_PATH, reports)
+    auto_git_push_reports(cfg)
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     print(f"{ts} Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
