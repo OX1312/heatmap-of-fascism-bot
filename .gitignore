@@ -14,3 +14,14 @@ __pycache__/
 
 # secrets
 secrets.json
+
+# local helpers / local state
+automode
+testmode
+cache_geocode.json
+
+# runtime state
+event_state.json
+bot.log
+bot.launchd.log
+*_run.log

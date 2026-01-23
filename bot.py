@@ -37,6 +37,7 @@ __version__ = "0.2.0"
 
 import ssl
 import certifi
+import os
 ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 SSL_CTX = ssl.create_default_context(cafile=certifi.where())
@@ -51,13 +52,144 @@ from datetime import datetime, timezone
 
 import requests
 
-# --- TIMESTAMP_PRINT ---
+# --- LOGGING (normal + event) ---
 import builtins as _builtins
-import datetime as _dt
+import threading as _threading
+from zoneinfo import ZoneInfo as _ZoneInfo
+
 _print = _builtins.print
+_LOG_TZ = _ZoneInfo("Europe/Berlin")
+_LOG_ROOT = pathlib.Path(__file__).resolve().parent
+_LOG_DATE = datetime.now(_LOG_TZ).strftime("%Y-%m-%d")
+
+NORMAL_LOG_PATH = _LOG_ROOT / f"normal-{_LOG_DATE}.log"
+EVENT_LOG_PATH  = _LOG_ROOT / f"event-{_LOG_DATE}.log"
+EVENT_STATE_PATH = _LOG_ROOT / "event_state.json"
+
+# --- RETENTION ---
+RETENTION_DAYS = 14
+
+def _prune_old_logs(root: pathlib.Path, days: int = RETENTION_DAYS) -> None:
+    """Delete normal-/event- logs older than N days (date from filename, Europe/Berlin)."""
+    try:
+        today = datetime.now(_LOG_TZ).date()
+        for prefix in ("normal-", "event-"):
+            for fp in root.glob(f"{prefix}*.log"):
+                m = re.match(rf"^{prefix}(\d{{4}}-\d{{2}}-\d{{2}})\.log$", fp.name)
+                if not m:
+                    continue
+                d = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+                if (today - d).days > days:
+                    try:
+                        fp.unlink()
+                    except FileNotFoundError:
+                        pass
+    except Exception:
+        pass
+
+_prune_old_logs(_LOG_ROOT)
+# --- /RETENTION ---
+
+_LOG_LOCK = _threading.Lock()
+
+_RE_CYCLE = re.compile(
+    r"^Added pending:\s*(\d+)\s*\|\s*Published:\s*(\d+)\s*\|\s*Pending left:\s*(\d+)\s*$"
+)
+
+def _now_iso():
+    return datetime.now(_LOG_TZ).isoformat(timespec="seconds")
+
+def _append(path: pathlib.Path, line: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+def _load_event_state() -> dict:
+    # Reset state if the event log was truncated/rotated (so event log can repopulate).
+    try:
+        if (not EVENT_LOG_PATH.exists()) or EVENT_LOG_PATH.stat().st_size == 0:
+            return {}
+    except Exception:
+        return {}
+    try:
+        if EVENT_STATE_PATH.exists():
+            return json.loads(EVENT_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def _save_event_state(d: dict) -> None:
+    try:
+        tmp = EVENT_STATE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(EVENT_STATE_PATH)  # atomic on same filesystem
+    except Exception:
+        pass
+
+_EVENT_LAST_BY_KEY = _load_event_state()
+
+def _event_key(msg: str) -> str:
+    line = msg.strip()
+    if _RE_CYCLE.match(line):
+        return "cycle_summary"
+
+    t = line.split()
+    if not t:
+        return ""
+    head = t[0]
+
+    if head in {"reply", "fav_check", "auto_push"}:
+        for tok in t[1:6]:
+            if tok.startswith(("status=", "in_reply_to=", "key=")):
+                return f"{head}:{tok}"
+        return head
+
+    if head == "Added" and len(t) > 1:
+        return f"{head} {t[1]}"
+
+    return head
+
+def _event_sig(k: str, msg: str) -> str:
+    line = msg.strip()
+    if k == "START":
+        # keep full line; START usually changes with version/mode
+        return line
+    if k == "verify_deleted":
+        # only numbers matter (checked/removed)
+        mm = re.search(r"checked=(\d+)\s+removed=(\d+)", line)
+        if mm:
+            return f"{mm.group(1)}|{mm.group(2)}"
+        return "PARSE_FAIL"
+    if k == "cycle_summary":
+        m = _RE_CYCLE.match(line)
+        if m:
+            # only numbers matter
+            return f"{m.group(1)}|{m.group(2)}|{m.group(3)}"
+        return "PARSE_FAIL"
+    return line
+
 def print(*args, **kwargs):
-    _print(_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), *args, **kwargs)
-# --- /TIMESTAMP_PRINT ---
+    sep = kwargs.get("sep", " ")
+    msg = sep.join(str(a) for a in args)
+
+    for line in (msg.splitlines() or [""]):
+        ts = _now_iso()
+        full = f"{ts} {line}".rstrip()
+    with _LOG_LOCK:
+
+        _append(NORMAL_LOG_PATH, full)
+
+        k = _event_key(line)
+        if k:
+            sig = _event_sig(k, line)
+            if _EVENT_LAST_BY_KEY.get(k) != sig:
+                _EVENT_LAST_BY_KEY[k] = sig
+                _append(EVENT_LOG_PATH, full)
+                _save_event_state(_EVENT_LAST_BY_KEY)
+
+        _print(full)
+# --- /LOGGING ---
+
 
 # =========================
 # FILES
@@ -786,7 +918,7 @@ def prune_deleted_published(cfg: dict, reports: dict) -> int:
             removed += 1
             from datetime import datetime, timezone
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} prune_drop_deleted status_id={status_id} reason={e}")
+            print(f"prune_drop_deleted status_id={status_id} reason={e}")
         except Exception:
             # network/transient -> keep
             kept.append(f)
@@ -901,7 +1033,7 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
             to_drop.add(idx)
             removed += 1
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} verify_drop_deleted status_id={sid} reason={e}")
+            print(f"verify_drop_deleted status_id={sid} reason={e}")
         except Exception:
             # transient error -> ignore (also don't stamp last_verify_ts)
             pass
@@ -911,7 +1043,7 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
 
     if checked:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} verify_deleted checked={checked} removed={removed}")
+        print(f"verify_deleted checked={checked} removed={removed}")
 
     return checked, removed
 
@@ -1064,7 +1196,7 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
                 props["notes"] = (n + " | source deleted").strip(" |")
             changed += 1
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} source_deleted_keep status_id={sid} reason={e}")
+            print(f"source_deleted_keep status_id={sid} reason={e}")
             continue
         except Exception:
             st = None
@@ -1140,7 +1272,7 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
 
     if changed:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} context_update changed={changed} checked={min(len(cands), budget)}")
+        print(f"context_update changed={changed} checked={min(len(cands), budget)}")
 
     return changed
 
@@ -1160,14 +1292,14 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
         if r.status_code not in (200, 201):
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
             body = (r.text or "")[:200].replace("\n", " ")
-            print(f"{ts} reply FAILED in_reply_to={in_reply_to_id} http={r.status_code} body={body!r}")
+            print(f"reply FAILED in_reply_to={in_reply_to_id} http={r.status_code} body={body!r}")
             return False
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} reply OK in_reply_to={in_reply_to_id}")
+        print(f"reply OK in_reply_to={in_reply_to_id}")
         return True
     except Exception as e:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} reply ERROR in_reply_to={in_reply_to_id} err={e!r}")
+        print(f"reply ERROR in_reply_to={in_reply_to_id} err={e!r}")
         return False
 def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to_id: str, text: str) -> bool:
     """Ensure we reply at most once per status+type. Persists in cache_geocode.json."""
@@ -1180,13 +1312,13 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to
         if ok:
             rep[key] = ts
             save_json(CACHE_PATH, cache)  # persist immediately to avoid spam on restart
-            print(f"{ts} reply OK key={key} status={in_reply_to_id}")
+            print(f"reply OK key={key} status={in_reply_to_id}")
         else:
-            print(f"{ts} reply FAILED key={key} status={in_reply_to_id}")
+            print(f"reply FAILED key={key} status={in_reply_to_id}")
         return ok
     except Exception as e:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} reply ERROR key={key} status={in_reply_to_id} err={e!r}")
+        print(f"reply ERROR key={key} status={in_reply_to_id} err={e!r}")
         return False
 
 
@@ -1243,12 +1375,12 @@ def load_trusted_set(cfg: Dict[str, Any]) -> set:
 
 def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) -> bool:
     if not trusted_set:
-        print(f"{datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')} fav_check status={status_id} trusted_set=EMPTY")
+        print(f"fav_check status={status_id} trusted_set=EMPTY")
         return False
     try:
         fav_accounts = get_favourited_by(cfg, status_id)
     except Exception as e:
-        print(f"{datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')} fav_check status={status_id} ERROR={e!r}")
+        print(f"fav_check status={status_id} ERROR={e!r}")
         return False
 
     fav_norm = []
@@ -1260,7 +1392,7 @@ def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) ->
             acct = str(a)
         fav_norm.append((acct or '').split('@')[0].strip().lower())
 
-    print(f"{datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')} fav_check status={status_id} favs={fav_norm} trusted={sorted(trusted_set)}")
+    print(f"fav_check status={status_id} favs={fav_norm} trusted={sorted(trusted_set)}")
     return any(x in trusted_set for x in fav_norm)
 
     for acc in fav_accounts:
@@ -1420,7 +1552,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         rc, out = run_git(["status", "--porcelain", "--", relpath])
         if rc != 0:
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} auto_push ERROR git_status rc={rc} out={out!r}")
+            print(f"auto_push ERROR git_status rc={rc} out={out!r}")
             return
         if not out.strip():
             return
@@ -1429,7 +1561,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         rc, out = run_git(["add", "--", relpath])
         if rc != 0:
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} auto_push ERROR git_add rc={rc} out={out!r}")
+            print(f"auto_push ERROR git_add rc={rc} out={out!r}")
             return
 
         tsmsg = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -1438,19 +1570,19 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         if rc != 0:
             # allow "nothing to commit" etc.
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} auto_push WARN git_commit rc={rc} out={out!r}")
+            print(f"auto_push WARN git_commit rc={rc} out={out!r}")
             return
 
         rc, out = run_git(["push", remote, f"HEAD:{branch}"])
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         if rc == 0:
-            print(f"{ts} auto_push OK remote={remote} branch={branch} file={relpath}")
+            print(f"auto_push OK remote={remote} branch={branch} file={relpath}")
         else:
-            print(f"{ts} auto_push ERROR git_push rc={rc} out={out!r}")
+            print(f"auto_push ERROR git_push rc={rc} out={out!r}")
 
     except Exception as e:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"{ts} auto_push ERROR exc={e!r}")
+        print(f"auto_push ERROR exc={e!r}")
 
 def main():
     # Ensure baseline files exist
@@ -1459,12 +1591,22 @@ def main():
     ensure_reports_file()
 
     cfg = load_json(CFG_PATH, None)
-    if not cfg:
-        raise SystemExit("Missing config.json")
+    if not isinstance(cfg, dict):
+        cfg = {}
 
-    # TEST MODE gate (stable spec):
-    # - stays ON until stability gates pass
-    # - forces AUTO_PUSH off (manual push fallback)
+    # ENV overrides (ONLY if explicitly set)
+    _ap_env = os.environ.get("AUTO_PUSH_REPORTS")
+    if _ap_env is not None:
+        _ap = _ap_env.strip().lower() in ("1", "true", "yes", "on")
+        cfg["auto_push_reports"] = _ap
+        print(f"cfg_override auto_push_reports={_ap} via ENV")
+
+    _tm_env = os.environ.get("TEST_MODE")
+    if _tm_env is not None:
+        _tm = _tm_env.strip().lower() in ("1", "true", "yes", "on")
+        cfg["test_mode"] = _tm
+        print(f"cfg_override test_mode={_tm} via ENV")
+
     test_mode = bool(cfg.get("test_mode", True))
     if test_mode:
         cfg["auto_push_reports"] = False
@@ -1502,7 +1644,7 @@ def main():
             _ = get_favourited_by(cfg, str(it.get("status_id") or ""))
         except StatusDeleted as e:
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"{ts} pending_drop_deleted status_id={it.get('status_id')} reason={e}")
+            print(f"pending_drop_deleted status_id={it.get('status_id')} reason={e}")
             it["status"] = "DROPPED"
             it["error"] = "status_deleted"
             continue
@@ -1621,6 +1763,35 @@ def main():
             continue
         coords, q = parse_location(text)
         if not coords and not q:
+            # NEEDS_INFO: keep the report and ask publicly for a usable location
+            needs_item = {
+                "id": item_id,
+                "status_id": str(status_id),
+                "status": "NEEDS_INFO",
+                "event": event,
+                "tag": tag,
+                "source": url,
+                "created_at": st.get("created_at"),
+                "created_date": iso_date_from_created_at(st.get("created_at")),
+                "lat": 0.0,
+                "lon": 0.0,
+                "accuracy_m": int(ACC_FALLBACK),
+                "radius_m": int(ACC_FALLBACK),
+                "geocode_method": "none",
+                "location_text": "",
+                "sticker_type": parse_sticker_type(text),
+                "removed_at": iso_date_from_created_at(st.get("created_at")) if event == "removed" else None,
+                "media": media_urls,
+                "error": "missing_location",
+                "replied": [],
+            }
+            if reply_once(cfg, cache, f"missing_loc:{status_id}", str(status_id), build_reply_missing([
+                "Ort: Koordinaten (lat, lon) ODER Straße+Stadt ODER Kreuzung+Stadt"
+            ])):
+                needs_item["replied"].append("missing_location")
+            pending.append(needs_item)
+            pending_by_source[url] = needs_item
+            added_pending += 1
             continue
 
         created_date = iso_date_from_created_at(st.get("created_at"))
@@ -1699,9 +1870,9 @@ def main():
                     ok = reply_once(cfg, cache, f"needs:{status_id}", str(status_id), build_needs_info_reply(q or ""))
                     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
                     if ok:
-                        print(f"{ts} needs_info_reply status={status_id} OK")
+                        print(f"needs_info_reply status={status_id} OK")
                     else:
-                        print(f"{ts} needs_info_reply status={status_id} FAILED")
+                        print(f"needs_info_reply status={status_id} FAILED")
                     continue
 
                 lat, lon = coords2
@@ -1897,7 +2068,7 @@ def main():
     removed = prune_deleted_published(cfg, reports)
     if removed:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
-        print(f"{ts} prune_deleted_published removed={removed}")
+        print(f"prune_deleted_published removed={removed}")
 
     # Write outputs
     save_json(CACHE_PATH, cache)
@@ -1923,7 +2094,7 @@ def main():
         auto_git_push_reports(cfg)
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    print(f"{ts} Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
+    print(f"Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
 
 if __name__ == "__main__":
     main()

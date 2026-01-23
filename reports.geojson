@@ -31,37 +31,6 @@
         ],
         "notes": ""
       }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          10.679668645591674,
-          53.86622320177367
-        ]
-      },
-      "properties": {
-        "id": "masto-115945891607421367",
-        "source": "https://mastodon.social/@HeatmapofFascism/115945891607421367",
-        "status_id": "115945891607421367",
-        "instance_url": "https://mastodon.social",
-        "status": "present",
-        "sticker_type": "MAKE GERMANY WHITE AGAIN",
-        "first_seen": "2026-01-23",
-        "last_seen": "2026-01-23",
-        "seen_count": 1,
-        "removed_at": null,
-        "stale_after_days": 30,
-        "accuracy_m": 10,
-        "radius_m": 10,
-        "geocode_method": "gps+snap_walk:footway|avoid_building",
-        "location_text": "53.86619, 10.67967",
-        "media": [
-          "https://files.mastodon.social/media_attachments/files/115/945/887/553/133/623/original/59cddca399cad913.jpeg"
-        ],
-        "notes": ""
-      }
     }
   ]
 }
