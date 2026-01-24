@@ -57,6 +57,7 @@ import requests
 import builtins as _builtins
 import threading as _threading
 from zoneinfo import ZoneInfo as _ZoneInfo
+from pathlib import Path
 
 _print = _builtins.print
 _LOG_TZ = _ZoneInfo("Europe/Berlin")
@@ -1841,14 +1842,23 @@ def main_once():
         print(f"cfg_override test_mode={_tm} via ENV")
 
     test_mode = bool(cfg.get("test_mode", True))
-    # auto_mode controls ONLY the Git auto-push.
-    # Backwards compatible: if auto_mode is missing, treat auto_push_reports as alias.
-    auto_mode = bool(cfg.get("auto_mode", cfg.get("auto_push_reports", False)))
-    cfg["auto_push_reports"] = bool(auto_mode)
 
-    # In TEST_MODE: auto-push stays OFF unless auto_mode is enabled.
-    if test_mode and not auto_mode:
+    # auto_mode = ONLY Git auto-push switch
+    # Backwards compatible: if auto_mode missing but auto_push_reports==true, treat as auto_mode=true
+    auto_mode = bool(cfg.get("auto_mode", False))
+    if ("auto_mode" not in cfg) and bool(cfg.get("auto_push_reports", False)):
+        auto_mode = True
+
+    # MUTUAL EXCLUSION: test_mode and auto_mode cannot be ON at the same time.
+    # Safety-first: if both are true, keep test_mode and force auto_mode OFF.
+    if test_mode and auto_mode:
+        auto_mode = False
+        cfg["auto_mode"] = False
         cfg["auto_push_reports"] = False
+        log_line("WARN: auto_mode disabled because test_mode=True (mutually exclusive).")
+    else:
+        cfg["auto_mode"] = bool(auto_mode)
+        cfg["auto_push_reports"] = bool(auto_mode)
 
     log_line(f"RUN v={__version__} test_mode={test_mode} auto_mode={auto_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
 
