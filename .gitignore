@@ -35,3 +35,7 @@ ox
 
 # local log archives
 *.bak
+
+# runtime caches (do not commit)
+cache_geocode.json
+event_state.json
