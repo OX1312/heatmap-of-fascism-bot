@@ -2271,7 +2271,7 @@ def main_once():
     # Unpublish if trusted ⭐ Favourite was removed (grace window)
     grace_s = int(cfg.get('unfav_grace_seconds', 60))
     fav_checked, fav_removed = prune_unfav_published(cfg, reports, cache, trusted_set, grace_s=grace_s)
-    if fav_checked or fav_removed:
+    if fav_removed:
         log_line(f"verify_fav checked={fav_checked} removed={fav_removed}")
 
     removed = prune_deleted_published(cfg, reports)
