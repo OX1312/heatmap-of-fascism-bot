@@ -1677,13 +1677,56 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
     """
     tags_map = cfg.get("hashtags") or {}
     if not isinstance(tags_map, dict) or not tags_map:
-        tags_map = {"sticker_report": "present", "sticker_removed": "removed"}
+        # default: sticker + graffiti (future-proof)
+        tags_map = {
+            "sticker_report": "present",
+            "sticker_removed": "removed",
+            "graffiti_report": "present",
+            "graffiti_removed": "removed",
+        }
 
-    # legacy alias support
-    if "report_sticker" in tags_map and "sticker_report" not in tags_map:
-        tags_map["sticker_report"] = tags_map["report_sticker"]
-    if "sticker_report" in tags_map and "report_sticker" not in tags_map:
-        tags_map["report_sticker"] = tags_map["sticker_report"]
+    # tolerant alias/typo support (accept user mistakes)
+    alias = {
+        # legacy sticker
+        "report_sticker": "sticker_report",
+        # graffiti aliases + common typo
+        "report_graffiti": "graffiti_report",
+        "grafitty_report": "graffiti_report",
+        "grafitty_removed": "graffiti_removed",
+    }
+
+    normalized = {}
+    for raw_tag, ev in tags_map.items():
+        if not isinstance(raw_tag, str):
+            continue
+        tag = raw_tag.strip().lstrip("#").lower()
+        tag = alias.get(tag, tag)
+        if not tag:
+            continue
+        ev_s = str(ev).strip().lower()
+        if ev_s in ("present", "report", "reported", "seen", "exists"):
+            ev_s = "present"
+        elif ev_s in ("removed", "remove", "gone", "deleted"):
+            ev_s = "removed"
+        normalized[tag] = ev_s
+
+    # ensure we also poll legacy timelines if only one side is configured
+    if "sticker_report" in normalized and "report_sticker" not in normalized:
+        normalized["report_sticker"] = normalized["sticker_report"]
+    if "report_sticker" in normalized and "sticker_report" not in normalized:
+        normalized["sticker_report"] = normalized["report_sticker"]
+
+    if "graffiti_report" in normalized and "report_graffiti" not in normalized:
+        normalized["report_graffiti"] = normalized["graffiti_report"]
+    if "report_graffiti" in normalized and "graffiti_report" not in normalized:
+        normalized["graffiti_report"] = normalized["report_graffiti"]
+
+    if "graffiti_removed" in normalized and "grafitty_removed" not in normalized:
+        normalized["grafitty_removed"] = normalized["graffiti_removed"]
+    if "grafitty_removed" in normalized and "graffiti_removed" not in normalized:
+        normalized["graffiti_removed"] = normalized["grafitty_removed"]
+
+    tags_map = normalized
 
     for tag, event in tags_map.items():
         statuses = get_hashtag_timeline(cfg, tag)
