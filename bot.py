@@ -175,6 +175,7 @@ def print(*args, **kwargs):
     - Prefix every line with: YYYY-MM-DD // HH:MM:SS -
     - No ISO 'T' and no '+01:00' noise.
     - Event-log dedup uses the *unprefixed* message line.
+    - fav_check is noisy -> only print when it CHANGES (per status=...).
     """
     sep = kwargs.get("sep", " ")
     msg = sep.join(str(a) for a in args)
@@ -183,13 +184,21 @@ def print(*args, **kwargs):
         for raw in (msg.splitlines() or [""]):
             line = str(raw).rstrip()
 
+            # compute event key once (used for dedup + event log)
+            k = _event_key(line) if line else ""
+
+            # suppress fav_check spam: only emit on change for same key
+            if line.startswith("fav_check") and k:
+                sig = _event_sig(k, line)
+                if _EVENT_LAST_BY_KEY.get(k) == sig:
+                    continue
+
             ts = datetime.now().astimezone()
             prefix = ts.strftime("%Y-%m-%d // %H:%M:%S")
             full = f"{prefix} - {line}" if line else f"{prefix} -"
 
             _append(NORMAL_LOG_PATH, full)
 
-            k = _event_key(line)
             if k:
                 sig = _event_sig(k, line)
                 if _EVENT_LAST_BY_KEY.get(k) != sig:
