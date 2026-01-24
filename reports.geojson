@@ -1,4 +1,36 @@
 {
   "type": "FeatureCollection",
-  "features": []
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.9850151,
+          53.5640479
+        ]
+      },
+      "properties": {
+        "id": "masto-115951130874069792",
+        "source": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951130874069792",
+        "status_id": "115951130874069792",
+        "instance_url": "https://mastodon.social",
+        "status": "present",
+        "sticker_type": "unknown",
+        "first_seen": "2026-01-24",
+        "last_seen": "2026-01-24",
+        "seen_count": 1,
+        "removed_at": null,
+        "stale_after_days": 30,
+        "accuracy_m": 50,
+        "radius_m": 50,
+        "geocode_method": "fallback+snap_walk:path",
+        "location_text": "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg",
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/951/114/019/039/567/original/b7af351c7e12635d.jpg"
+        ],
+        "notes": ""
+      }
+    }
+  ]
 }
