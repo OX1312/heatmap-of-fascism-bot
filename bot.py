@@ -97,7 +97,8 @@ _RE_CYCLE = re.compile(
 )
 
 def _now_iso():
-    return datetime.now(_LOG_TZ).isoformat(timespec="seconds")
+    # local time, human readable (no 'T', no timezone suffix)
+    return datetime.now().strftime("%Y-%m-%d // %H:%M:%S")
 
 def _append(path: pathlib.Path, line: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,25 +170,34 @@ def _event_sig(k: str, msg: str) -> str:
     return line
 
 def print(*args, **kwargs):
+    """
+    Logging wrapper (single timestamp, readable):
+    - Prefix every line with: YYYY-MM-DD // HH:MM:SS -
+    - No ISO 'T' and no '+01:00' noise.
+    - Event-log dedup uses the *unprefixed* message line.
+    """
     sep = kwargs.get("sep", " ")
     msg = sep.join(str(a) for a in args)
 
-    for line in (msg.splitlines() or [""]):
-        ts = _now_iso()
-        full = f"{ts} {line}".rstrip()
     with _LOG_LOCK:
+        for raw in (msg.splitlines() or [""]):
+            line = str(raw).rstrip()
 
-        _append(NORMAL_LOG_PATH, full)
+            ts = datetime.now().astimezone()
+            prefix = ts.strftime("%Y-%m-%d // %H:%M:%S")
+            full = f"{prefix} - {line}" if line else f"{prefix} -"
 
-        k = _event_key(line)
-        if k:
-            sig = _event_sig(k, line)
-            if _EVENT_LAST_BY_KEY.get(k) != sig:
-                _EVENT_LAST_BY_KEY[k] = sig
-                _append(EVENT_LOG_PATH, full)
-                _save_event_state(_EVENT_LAST_BY_KEY)
+            _append(NORMAL_LOG_PATH, full)
 
-        _print(full)
+            k = _event_key(line)
+            if k:
+                sig = _event_sig(k, line)
+                if _EVENT_LAST_BY_KEY.get(k) != sig:
+                    _EVENT_LAST_BY_KEY[k] = sig
+                    _append(EVENT_LOG_PATH, full)
+                    _save_event_state(_EVENT_LAST_BY_KEY)
+
+            _print(full, flush=True)
 # --- /LOGGING ---
 
 
@@ -1731,10 +1741,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
 
 
 def log_line(msg: str) -> None:
-    # local time (Europe/Berlin via system tz)
-    ts = datetime.now().astimezone()
-    prefix = ts.strftime("%Y-%m-%d // %H:%M:%S")
-    print(f"{prefix} - {msg}", flush=True)
+    print(msg, flush=True)
 
 def main_once():
     # Ensure baseline files exist
@@ -2287,7 +2294,7 @@ def main_once():
         auto_git_push_reports(cfg)
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    log_line(f"Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
+    log_line(f"Added pending: {added_pending} | Pending left: {len(still_pending)} | Published: {published}")
 
     return {
         'added_pending': int(added_pending),
