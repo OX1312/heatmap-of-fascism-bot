@@ -37,17 +37,17 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          10.23123,
-          54.989423
+          13.413409709627157,
+          52.52178080619196
         ]
       },
       "properties": {
-        "id": "masto-115949614545486881",
-        "source": "https://mastodon.social/@HeatmapofFascism/115949614545486881",
-        "status_id": "115949614545486881",
+        "id": "masto-115950238061218433",
+        "source": "https://mastodon.social/@HeatmapofFascism/115950238061218433",
+        "status_id": "115950238061218433",
         "instance_url": "https://mastodon.social",
         "status": "present",
-        "sticker_type": "unknown",
+        "sticker_type": "far-right propaganda",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
         "seen_count": 1,
@@ -55,10 +55,10 @@
         "stale_after_days": 30,
         "accuracy_m": 10,
         "radius_m": 10,
-        "geocode_method": "gps",
-        "location_text": "54.989423, 10.23123",
+        "geocode_method": "gps+snap_walk:pedestrian",
+        "location_text": "52.521918, 13.413215",
         "media": [
-          "https://files.mastodon.social/media_attachments/files/115/949/614/157/573/971/original/d7521aba8226e470.jpeg"
+          "https://files.mastodon.social/media_attachments/files/115/950/237/825/615/753/original/31acd5ac07c6b8d0.jpeg"
         ],
         "notes": ""
       }
