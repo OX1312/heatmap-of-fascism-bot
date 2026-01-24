@@ -1416,11 +1416,11 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to
             _ = delete_status(cfg, prev)  # best-effort, silent
 
         rid = post_public_reply(cfg, in_reply_to_id, text)
-        if rid:
-            by_status[str(in_reply_to_id)] = rid
 
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         if rid:
+            # persist BOTH: per-key dedup + per-status last-reply (needed for delete+replace after restart)
+            by_status[str(in_reply_to_id)] = rid
             rep[key] = ts
             save_json(CACHE_PATH, cache)  # persist immediately to avoid spam on restart
             print(f"reply OK key={key} status={in_reply_to_id}")

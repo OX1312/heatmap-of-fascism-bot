@@ -24,7 +24,7 @@ log_launchd     – tail bot.launchd.log
 log_normal      – tail normal-YYYY-MM-DD.log
 log_event       – tail event-YYYY-MM-DD.log
 show_errors     – fehler grep (heute)
-compile_py      – python -m py_compile bot.py
+compile_py      – "$REPO/.venv/bin/python" -m py_compile bot.py
 git_status      – git status
 git_diff        – git diff --stat
 py_dir          – zeigt plist python + workingdir
@@ -45,21 +45,21 @@ case "$cmd" in
   test_run)    "$REPO/.venv/bin/python" -u "$REPO/bot.py" --once ;;
 
   bot_version)
-    pyv="$(python -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || true)"
-    v="$(python - <<'PY' 2>/dev/null || true
+    pyv="$("$REPO/.venv/bin/python" -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || true)"
+    v="$("$REPO/.venv/bin/python" - <<'PY' 2>/dev/null || true
 import re
 s=open("bot.py","r",encoding="utf-8").read()
 m=re.search(r'__version__\s*=\s*"([^"]+)"', s)
 print(m.group(1) if m else "unknown")
 PY
 )"
-    tm="$(python - <<'PY' 2>/dev/null || true
+    tm="$("$REPO/.venv/bin/python" - <<'PY' 2>/dev/null || true
 import json
 cfg=json.load(open("config.json","r",encoding="utf-8"))
 print(bool(cfg.get("test_mode", False)))
 PY
 )"
-    ap="$(python - <<'PY' 2>/dev/null || true
+    ap="$("$REPO/.venv/bin/python" - <<'PY' 2>/dev/null || true
 import json
 cfg=json.load(open("config.json","r",encoding="utf-8"))
 print(bool(cfg.get("auto_push_reports", False)))
@@ -70,14 +70,14 @@ PY
     ;;
 
   test_report)
-    python - <<'PY'
+    "$REPO/.venv/bin/python" - <<'PY'
 import json
 cfg=json.load(open("config.json","r",encoding="utf-8"))
 print("test_mode=" + str(bool(cfg.get("test_mode", False))).lower())
 PY
     ;;
   auto_report)
-    python - <<'PY'
+    "$REPO/.venv/bin/python" - <<'PY'
 import json
 cfg=json.load(open("config.json","r",encoding="utf-8"))
 print("auto_push_reports=" + str(bool(cfg.get("auto_push_reports", False))).lower())
@@ -88,7 +88,7 @@ PY
   log_normal)  tail -n 200 "normal-$(today).log" ;;
   log_event)   tail -n 200 "event-$(today).log" ;;
   show_errors) grep -nE "(ERROR|WARN|FAILED|Exception|Traceback|\\b(401|403|404|410|429)\\b|\\b5[0-9]{2}\\b|timeout)" "normal-$(today).log" | tail -n 120 || true ;;
-  compile_py)  python -m py_compile bot.py && echo ok ;;
+  compile_py)  "$REPO/.venv/bin/python" -m py_compile bot.py && echo ok ;;
   git_status)  git status ;;
   git_diff)    git diff --stat ;;
   py_dir)
