@@ -1691,10 +1691,14 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
         time.sleep(DELAY_TAG_FETCH)
 
 
-def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
+def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: str = "dirty") -> None:
     """
-    Optional: auto-commit + push reports.geojson after publish.
-    Enabled by config.json: "auto_push_reports": true
+    Auto Git push for reports.geojson ONLY.
+    Behavior:
+      - immediate push on first detected change
+      - then debounce window grows on continued changes: 10s, 20s, 40s, ... (configurable)
+      - optional backup push window (default 4h) if still dirty for long
+    Enabled by config.json: auto_mode=true (or legacy auto_push_reports=true).
     """
     try:
         if not cfg.get("auto_push_reports"):
@@ -1702,6 +1706,32 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
 
         remote = str(cfg.get("auto_push_remote", "origin"))
         branch = str(cfg.get("auto_push_branch", "main"))
+
+        stages = cfg.get("auto_push_debounce_stages") or [10, 20, 40, 80, 160]
+        try:
+            stages = [int(x) for x in stages]
+        except Exception:
+            stages = [10, 20, 40, 80, 160]
+        stages = [max(1, int(x)) for x in stages] or [10]
+
+        backup_s = int(cfg.get("auto_push_backup_seconds", 4 * 3600))
+        state_path = Path(ROOT) / ".autopush_state.json"
+
+        def load_state():
+            st = load_json(str(state_path), {}) or {}
+            if not isinstance(st, dict):
+                st = {}
+            st.setdefault("last_push_ts", 0.0)
+            st.setdefault("next_push_ts", 0.0)
+            st.setdefault("stage_i", 0)
+            st.setdefault("last_backup_ts", 0.0)
+            return st
+
+        def save_state(st):
+            try:
+                save_json(str(state_path), st)
+            except Exception:
+                pass
 
         def run_git(args):
             r = subprocess.run(
@@ -1716,39 +1746,73 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         # only if reports.geojson changed
         rc, out = run_git(["status", "--porcelain", "--", relpath])
         if rc != 0:
-            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"auto_push ERROR git_status rc={rc} out={out!r}")
+            log_line(f"auto_push ERROR git_status rc={rc} out={out!r}")
             return
         if not out.strip():
+            return  # clean
+
+        st = load_state()
+        now = time.time()
+
+        last_push = float(st.get("last_push_ts") or 0.0)
+        next_push = float(st.get("next_push_ts") or 0.0)
+        stage_i = int(st.get("stage_i") or 0)
+        stage_i = max(0, min(stage_i, len(stages) - 1))
+
+        last_backup = float(st.get("last_backup_ts") or 0.0)
+        backup_due = bool(backup_s > 0 and (now - last_backup) >= float(backup_s))
+
+        # First hit after idle => push immediately
+        if last_push <= 0.0:
+            push_now = True
+        else:
+            # During debounce window: SKIP + extend window progressively
+            if (now < next_push) and (not backup_due):
+                stage_i = min(stage_i + 1, len(stages) - 1)
+                wait_s = stages[stage_i]
+                st["stage_i"] = stage_i
+                st["next_push_ts"] = now + float(wait_s)
+                save_state(st)
+                log_line(f"auto_push DEBOUNCE reason={reason} wait_s={wait_s} stage={stage_i+1}/{len(stages)}")
+                return
+            push_now = True
+
+        if not push_now:
             return
 
+        # Stage window after push
+        st["stage_i"] = 0
 
         rc, out = run_git(["add", "--", relpath])
         if rc != 0:
-            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"auto_push ERROR git_add rc={rc} out={out!r}")
+            log_line(f"auto_push ERROR git_add rc={rc} out={out!r}")
             return
 
         tsmsg = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         msg = f"Auto-publish reports ({tsmsg})"
         rc, out = run_git(["commit", "-m", msg])
         if rc != 0:
-            # allow "nothing to commit" etc.
-            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"auto_push WARN git_commit rc={rc} out={out!r}")
+            # allow "nothing to commit"
+            if "nothing to commit" in (out or "").lower():
+                log_line("auto_push SKIP nothing_to_commit")
+                return
+            log_line(f"auto_push ERROR git_commit rc={rc} out={out!r}")
             return
 
         rc, out = run_git(["push", remote, f"HEAD:{branch}"])
-        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         if rc == 0:
-            print(f"auto_push OK remote={remote} branch={branch} file={relpath}")
+            st["last_push_ts"] = now
+            st["next_push_ts"] = now + float(stages[0])
+            if backup_due:
+                st["last_backup_ts"] = now
+            save_state(st)
+            log_line(f"auto_push OK reason={reason} remote={remote} branch={branch} file={relpath}")
         else:
-            print(f"auto_push ERROR git_push rc={rc} out={out!r}")
+            log_line(f"auto_push ERROR git_push rc={rc} out={out!r}")
 
     except Exception as e:
-        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"auto_push ERROR exc={e!r}")
-
+        import traceback
+        log_line(f"auto_push ERROR exc={e!r}\n{traceback.format_exc()}")
 
 def log_line(msg: str) -> None:
     print(msg, flush=True)
@@ -1787,6 +1851,10 @@ def main_once():
         cfg["auto_push_reports"] = False
 
     log_line(f"RUN v={__version__} test_mode={test_mode} auto_mode={auto_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
+
+    # If auto_mode is ON and reports.geojson is already dirty from earlier runs, push once.
+    auto_git_push_reports(cfg, reason="startup_flush")
+
 
     secrets = load_json(SECRETS_PATH, None)
     if not secrets or not secrets.get("access_token"):
