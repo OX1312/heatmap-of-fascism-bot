@@ -28,3 +28,7 @@ bot.launchd.log
 
 # virtual env
 .venv/
+
+# runtime cache
+cache_geocode.json
+ox

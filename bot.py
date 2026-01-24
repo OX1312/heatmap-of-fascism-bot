@@ -938,6 +938,67 @@ def prune_deleted_published(cfg: dict, reports: dict) -> int:
 
     return removed
 
+
+def prune_unfav_published(cfg: dict, reports: dict, cache: dict, trusted_set: set, grace_s: int = 60) -> tuple[int, int]:
+    """
+    Policy:
+    - If a published feature loses ALL trusted ⭐ Favourite approvals, unpublish (remove from reports.geojson).
+    - Use a grace window (seconds) to avoid transient API states.
+    - Track timers in cache_geocode.json only (keeps repo clean).
+    Returns (checked, removed).
+    """
+    try:
+        feats = list(reports.get("features") or [])
+        if not feats:
+            return (0, 0)
+
+        unfav = cache.setdefault("_unfav", {})  # status_id -> unix_ts
+        kept = []
+        checked = 0
+        removed = 0
+        now = time.time()
+
+        for f in feats:
+            props = (f or {}).get("properties") or {}
+            sid = str(props.get("status_id") or "").strip()
+            if not sid.isdigit():
+                kept.append(f)
+                continue
+
+            checked += 1
+            ok = is_approved_by_fav(cfg, sid, trusted_set)
+
+            if ok:
+                # approved again -> clear timer
+                unfav.pop(sid, None)
+                kept.append(f)
+                continue
+
+            t0 = unfav.get(sid)
+            if not t0:
+                unfav[sid] = now
+                kept.append(f)
+                continue
+
+            try:
+                age = now - float(t0)
+            except Exception:
+                age = 0.0
+
+            if age >= float(grace_s):
+                # unpublish
+                unfav.pop(sid, None)
+                removed += 1
+                continue
+
+            kept.append(f)
+
+        if removed:
+            reports["features"] = kept
+        return (checked, removed)
+    except Exception:
+        return (0, 0)
+
 def get_favourited_by(cfg: Dict[str, Any], status_id: str) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
     url = f"{instance}/api/v1/statuses/{status_id}/favourited_by"
@@ -1333,44 +1394,72 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to
 
 
 def build_reply_ok() -> str:
-    # A) Alles top
-    return "Alles top – danke! Der Report ist drin und wird nach dem FAV auf die Karte übernommen. Alerta alerta 🖖"
+    return (
+        "🤖 Report received. 🚀\n"
+        "Trusted accounts: ⭐ Favourite this post to add your report to the map.\n"
+        "\n"
+        "Pro tips (optional):\n"
+        "• Type: #sticker_type: party / symbol / slogan\n"
+        "• Removed: #sticker_removed\n"
+        "• Seen again: #sticker_seen\n"
+        "\n"
+        "FCK RACISM. ✊ ALERTA ALERTA."
+    )
 
 
 def build_reply_pending() -> str:
-    return "Report erkannt ✅ Bitte FAV (von trusted Accounts), dann kommt der Punkt auf die Karte. Alerta alerta 🖖"
+    return (
+        "🤖 Report received. 🚀\n"
+        "Trusted accounts: ⭐ Favourite this post to add your report to the map.\n"
+        "FCK RACISM. ✊ ALERTA ALERTA."
+    )
+
 
 def build_reply_improve(hints: list[str]) -> str:
-    # B) Erkannt, aber besser möglich
-    lines = ["Danke! Report erkannt ✅", "Optional für bessere Qualität:"]
-    for h in (hints or [])[:5]:
-        lines.append(f"• {h}")
-    lines.append("Alerta alerta 🖖")
+    # keep behaviour: show optional hints, but in EN + new style
+    lines = [
+        "🤖 Report received. 🚀",
+        "Trusted accounts: ⭐ Favourite this post to add your report to the map.",
+    ]
+    if hints:
+        lines.append("")
+        lines.append("Pro tips (optional):")
+        for h in (hints or [])[:5]:
+            lines.append(f"• {h}")
+    lines.append("")
+    lines.append("FCK RACISM. ✊ ALERTA ALERTA.")
     return "\n".join(lines)
+
 
 def build_reply_missing(missing: list[str]) -> str:
-    # C) Es fehlt etwas -> neu posten
-    lines = ["Ich kann den Report so noch nicht verarbeiten ❌", "Bitte neu posten mit:"]
+    # hard reject -> NEW post required
+    lines = [
+        "🤖 ⚠️ We can’t process this report yet.",
+        "Please create a NEW post with:",
+    ]
     for m in (missing or [])[:6]:
         lines.append(f"• {m}")
-    lines.append("Wichtig: Im Text muss @HeatmapofFascism stehen.")
-    lines.append("Alerta alerta 🖖")
+    lines.append("Important: the post must mention @HeatmapofFascism.")
+    lines.append("")
+    lines.append("FCK RACISM. ✊ ALERTA ALERTA.")
     return "\n".join(lines)
 
+
 def build_needs_info_reply(location_text: str) -> str:
-    # Geocode fehlgeschlagen -> präzisere Ortsangabe anfordern
+    # geocode failed / unclear -> EDIT allowed
     loc = (location_text or "").strip()
-    loc_part = f' („{loc}“)' if loc else ""
+    loc_part = f' (“{loc}”)' if loc else ""
     return (
-        "Danke für die Meldung. Ich kann den Ort gerade nicht automatisch auflösen"
+        "🤖 ⚠️ Location unclear — we can’t place this on the map yet"
         + loc_part
         + ".\n"
-        "Bitte antworte mit EINEM von diesen Formaten:\n"
-        "• Koordinaten: 53.87, 10.68\n"
-        "• Kreuzung: Straße A / Straße B, Stadt\n"
-        "• Adresse: Straße 12, Stadt\n"
-        "Und wichtig: Im Text muss @HeatmapofFascism stehen.\nWenn du den ursprünglichen Post nicht bearbeiten kannst: bitte löschen und neu posten (mit korrektem Ort).\n"
-        "Alerta alerta 🖖"
+        "Please EDIT this post and add ONE of:\n"
+        "• Coordinates: lat, lon\n"
+        "• Crossing + city: Street A / Street B, City\n"
+        "• Street + city (house number helps)\n"
+        "Important: the post must mention @HeatmapofFascism.\n"
+        "\n"
+        "FCK RACISM. ✊ ALERTA ALERTA."
     )
 def load_trusted_set(cfg: Dict[str, Any]) -> set:
     # Union of (config allowed_reviewers) + (local trusted_accounts.json)
@@ -2075,6 +2164,12 @@ def main():
 
     # 3) Stale rule: present -> unknown after N days
     # stale rule disabled (no auto-expiry)
+    # Unpublish if trusted ⭐ Favourite was removed (grace window)
+    grace_s = int(cfg.get('unfav_grace_seconds', 60))
+    fav_checked, fav_removed = prune_unfav_published(cfg, reports, cache, trusted_set, grace_s=grace_s)
+    if fav_checked or fav_removed:
+        print(f"verify_fav checked={fav_checked} removed={fav_removed}")
+
     removed = prune_deleted_published(cfg, reports)
     if removed:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
@@ -2086,7 +2181,7 @@ def main():
     save_json(PENDING_PATH, still_pending)
 
     # reports.geojson: write+push ONLY when content changed (keeps repo clean)
-    reports_dirty = bool(published or removed or ctx_changed or v_removed)
+    reports_dirty = bool(published or removed or fav_removed or ctx_changed or v_removed)
     if reports_dirty:
         for f in (reports.get("features") or []):
             props = (f or {}).get("properties") or {}
