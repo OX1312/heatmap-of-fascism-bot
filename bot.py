@@ -1411,6 +1411,7 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to
     try:
         rep = cache.setdefault("_replies", {})
         if rep.get(key):
+            print(f"reply SKIP key={key} status={in_reply_to_id}")
             return True
 
         # keep exactly one bot reply per original post
