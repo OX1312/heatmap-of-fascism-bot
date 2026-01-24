@@ -31,7 +31,6 @@ bot.launchd.log
 
 # runtime cache
 cache_geocode.json
-ox
 
 # local log archives
 *.bak
