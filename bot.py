@@ -44,6 +44,7 @@ SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 import json
 import re
 import time
+import traceback
 import pathlib
 import math
 import subprocess
@@ -2329,7 +2330,10 @@ def main():
         try:
             stats = main_once()
         except Exception as e:
+            # log exception + full traceback as separate log lines (grep-friendly)
             log_line(f"loop ERROR err={e!r}")
+            for ln in traceback.format_exc().splitlines():
+                log_line(ln)
 
         # Define "activity"
         pending_left = int((stats or {}).get("pending_left", 0) or 0)
