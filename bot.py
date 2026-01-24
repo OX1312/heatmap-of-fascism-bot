@@ -253,8 +253,10 @@ def load_json(path: pathlib.Path, default):
         return default
 
 def save_json(path: pathlib.Path, data):
-    with path.open("w", encoding="utf-8") as f:
+    # Always end with a trailing newline to avoid git '\ No newline at end of file'
+    with path.open("w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
 
 def ensure_reports_file():
     if not REPORTS_PATH.exists():
