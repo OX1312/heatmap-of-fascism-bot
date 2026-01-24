@@ -1348,8 +1348,22 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
     return changed
 
 
-def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bool:
-    """Public reply under the original post (no DM). Best-effort."""
+def delete_status(cfg: Dict[str, Any], status_id: str) -> bool:
+    """Best-effort delete of a status posted by this bot. Silent on failure."""
+    try:
+        instance = cfg["instance_url"].rstrip("/")
+        url = f"{instance}/api/v1/statuses/{str(status_id)}"
+        headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+        r = requests.delete(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+        if r.status_code in (200, 202, 204, 404, 410):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> Optional[str]:
+    """Public reply under the original post. Returns reply_id on success, else None."""
     try:
         instance = cfg["instance_url"].rstrip("/")
         url = f"{instance}/api/v1/statuses"
@@ -1361,27 +1375,47 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> bo
         }
         r = requests.post(url, headers=headers, data=data, timeout=MASTODON_TIMEOUT_S)
         if r.status_code not in (200, 201):
-            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
             body = (r.text or "")[:200].replace("\n", " ")
             print(f"reply FAILED in_reply_to={in_reply_to_id} http={r.status_code} body={body!r}")
-            return False
-        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"reply OK in_reply_to={in_reply_to_id}")
-        return True
+            return None
+
+        j = r.json() if r.content else {}
+        reply_id = str(j.get("id") or "").strip() or None
+        if reply_id:
+            print(f"reply OK in_reply_to={in_reply_to_id} id={reply_id}")
+        else:
+            print(f"reply OK in_reply_to={in_reply_to_id}")
+        return reply_id
     except Exception as e:
-        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         print(f"reply ERROR in_reply_to={in_reply_to_id} err={e!r}")
-        return False
+        return None
+
+
 def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to_id: str, text: str) -> bool:
-    """Ensure we reply at most once per status+type. Persists in cache_geocode.json."""
+    """
+    Ensure we reply at most once per status+type.
+    Optional best-effort cleanup: delete previous bot reply under the same post before posting a new one.
+    Persists in cache_geocode.json.
+    """
     try:
         rep = cache.setdefault("_replies", {})
         if rep.get(key):
             return True
-        ok = post_public_reply(cfg, in_reply_to_id, text)
+
+        # Optional: delete previous bot reply (best-effort)
+        if bool(cfg.get("delete_old_bot_replies", False)):
+            last = cache.setdefault("_last_bot_reply", {})  # in_reply_to_id -> reply_id
+            old_id = (last.get(str(in_reply_to_id)) or "").strip()
+            if old_id:
+                delete_status(cfg, old_id)
+
+        reply_id = post_public_reply(cfg, in_reply_to_id, text)
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+        ok = bool(reply_id)
         if ok:
-            rep[key] = ts
+            rep[key] = {"ts": ts, "reply_id": reply_id}
+            cache.setdefault("_last_bot_reply", {})[str(in_reply_to_id)] = reply_id
             save_json(CACHE_PATH, cache)  # persist immediately to avoid spam on restart
             print(f"reply OK key={key} status={in_reply_to_id}")
         else:
@@ -1394,6 +1428,7 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to
 
 
 def build_reply_ok() -> str:
+
     return (
         "🤖 Report received. 🚀\n"
         "Trusted accounts: ⭐ Favourite this post to add your report to the map.\n"
