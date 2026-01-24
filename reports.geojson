@@ -31,6 +31,37 @@
         ],
         "notes": ""
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.943659608154134,
+          53.57391661106398
+        ]
+      },
+      "properties": {
+        "id": "masto-115951200894835111",
+        "source": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111",
+        "status_id": "115951200894835111",
+        "instance_url": "https://mastodon.social",
+        "status": "present",
+        "sticker_type": "unknown",
+        "first_seen": "2026-01-24",
+        "last_seen": "2026-01-24",
+        "seen_count": 1,
+        "removed_at": null,
+        "stale_after_days": 30,
+        "accuracy_m": 50,
+        "radius_m": 50,
+        "geocode_method": "fallback+snap_walk:footway|avoid_building",
+        "location_text": "intersection of Spengelweg and Rellinger Str., Hamburg",
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/951/200/700/979/490/original/64dbe658c21bd8f2.jpg"
+        ],
+        "notes": ""
+      }
     }
   ]
 }
