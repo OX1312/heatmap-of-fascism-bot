@@ -1362,8 +1362,20 @@ def delete_status(cfg: Dict[str, Any], status_id: str) -> bool:
         return False
 
 
+def delete_status(cfg: dict, status_id: str) -> bool:
+    """Best-effort delete of a bot status. Ignore failures (federation, perms)."""
+    try:
+        instance = cfg["instance_url"].rstrip("/")
+        url = f"{instance}/api/v1/statuses/{status_id}"
+        headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+        r = requests.delete(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+        return r.status_code in (200, 202)
+    except Exception:
+        return False
+
+
 def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> Optional[str]:
-    """Public reply under the original post. Returns reply_id on success, else None."""
+    """Public reply under the original post (no DM). Returns reply status_id on success."""
     try:
         instance = cfg["instance_url"].rstrip("/")
         url = f"{instance}/api/v1/statuses"
@@ -1378,54 +1390,48 @@ def post_public_reply(cfg: Dict[str, Any], in_reply_to_id: str, text: str) -> Op
             body = (r.text or "")[:200].replace("\n", " ")
             print(f"reply FAILED in_reply_to={in_reply_to_id} http={r.status_code} body={body!r}")
             return None
-
-        j = r.json() if r.content else {}
-        reply_id = str(j.get("id") or "").strip() or None
-        if reply_id:
-            print(f"reply OK in_reply_to={in_reply_to_id} id={reply_id}")
-        else:
-            print(f"reply OK in_reply_to={in_reply_to_id}")
-        return reply_id
+        try:
+            js = r.json()
+            rid = str(js.get("id") or "").strip()
+        except Exception:
+            rid = ""
+        print(f"reply OK in_reply_to={in_reply_to_id} reply_id={rid or 'UNKNOWN'}")
+        return rid or None
     except Exception as e:
         print(f"reply ERROR in_reply_to={in_reply_to_id} err={e!r}")
         return None
 
 
 def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], key: str, in_reply_to_id: str, text: str) -> bool:
-    """
-    Ensure we reply at most once per status+type.
-    Optional best-effort cleanup: delete previous bot reply under the same post before posting a new one.
-    Persists in cache_geocode.json.
-    """
+    """Ensure we reply at most once per status+type. Also keeps only ONE bot-reply per status via delete+replace."""
     try:
         rep = cache.setdefault("_replies", {})
         if rep.get(key):
             return True
 
-        # Optional: delete previous bot reply (best-effort)
-        if bool(cfg.get("delete_old_bot_replies", False)):
-            last = cache.setdefault("_last_bot_reply", {})  # in_reply_to_id -> reply_id
-            old_id = (last.get(str(in_reply_to_id)) or "").strip()
-            if old_id:
-                delete_status(cfg, old_id)
+        # keep exactly one bot reply per original post
+        by_status = cache.setdefault("_reply_by_status", {})  # in_reply_to_id -> reply_id
+        prev = str(by_status.get(str(in_reply_to_id)) or "").strip()
+        if prev:
+            _ = delete_status(cfg, prev)  # best-effort, silent
 
-        reply_id = post_public_reply(cfg, in_reply_to_id, text)
+        rid = post_public_reply(cfg, in_reply_to_id, text)
+        if rid:
+            by_status[str(in_reply_to_id)] = rid
+
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-        ok = bool(reply_id)
-        if ok:
-            rep[key] = {"ts": ts, "reply_id": reply_id}
-            cache.setdefault("_last_bot_reply", {})[str(in_reply_to_id)] = reply_id
+        if rid:
+            rep[key] = ts
             save_json(CACHE_PATH, cache)  # persist immediately to avoid spam on restart
             print(f"reply OK key={key} status={in_reply_to_id}")
-        else:
-            print(f"reply FAILED key={key} status={in_reply_to_id}")
-        return ok
+            return True
+
+        print(f"reply FAILED key={key} status={in_reply_to_id}")
+        return False
     except Exception as e:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         print(f"reply ERROR key={key} status={in_reply_to_id} err={e!r}")
         return False
-
 
 def build_reply_ok() -> str:
 
@@ -1718,6 +1724,13 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         print(f"auto_push ERROR exc={e!r}")
 
+
+def log_line(msg: str) -> None:
+    # local time (Europe/Berlin via system tz)
+    ts = datetime.now().astimezone()
+    prefix = ts.strftime("%Y-%m-%d // %H:%M:%S")
+    print(f"{prefix} - {msg}", flush=True)
+
 def main_once():
     # Ensure baseline files exist
     ensure_object_file(CACHE_PATH)
@@ -1745,7 +1758,7 @@ def main_once():
     if test_mode:
         cfg["auto_push_reports"] = False
 
-    print(f"START v={__version__} test_mode={test_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
+    log_line(f"RUN v={__version__} test_mode={test_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
 
     secrets = load_json(SECRETS_PATH, None)
     if not secrets or not secrets.get("access_token"):
@@ -2086,6 +2099,36 @@ def main_once():
     still_pending: List[Dict[str, Any]] = []
 
     for item in pending:
+        # Refresh edited NEEDS_INFO items (user added location after bot reply)
+        if item.get("status") == "NEEDS_INFO":
+            sid = str(item.get("status_id") or "").strip()
+            if sid.isdigit():
+                try:
+                    st = fetch_status(cfg, cfg.get("instance_url", ""), sid) or {}
+                    html = str(st.get("content") or "")
+                    # cheap HTML -> text (good enough for coords + tags)
+                    text = re.sub(r"<[^>]+>", " ", html)
+                    text = re.sub(r"\s+", " ", text).strip()
+
+                    coords, q = parse_location(text)
+                    if coords:
+                        lat, lon = coords
+                        item["lat"] = float(lat)
+                        item["lon"] = float(lon)
+                        item["accuracy_m"] = int(ACC_GPS)
+                        item["radius_m"] = int(ACC_GPS)
+                        item["geocode_method"] = "gps"
+                        item["location_text"] = f"{lat}, {lon}"
+                        item["sticker_type"] = parse_sticker_type(text)
+                        item["error"] = None
+                        item["status"] = "PENDING"
+                        item["replied_pending"] = None  # allow pending ack replace
+                        print(f"needs_info_promoted status={sid} -> PENDING")
+                except Exception:
+                    pass
+            still_pending.append(item)
+            continue
+
         if item.get("status") != "PENDING":
             still_pending.append(item)
             continue
@@ -2100,7 +2143,12 @@ def main_once():
             if okp:
                 item["replied_pending"] = True
 
-        ok = is_approved_by_fav(cfg, str(item["status_id"]), trusted_set)
+        try:
+            ok = is_approved_by_fav(cfg, str(item["status_id"]), trusted_set)
+        except StatusDeleted as e:
+            # Source post deleted -> drop pending item (prevents endless 404 spam)
+            log_line(f"drop_pending status_id={item.get('status_id')} reason=deleted_404")
+            continue
         if not ok:
             still_pending.append(item)
             time.sleep(DELAY_FAV_CHECK)
@@ -2203,7 +2251,7 @@ def main_once():
     grace_s = int(cfg.get('unfav_grace_seconds', 60))
     fav_checked, fav_removed = prune_unfav_published(cfg, reports, cache, trusted_set, grace_s=grace_s)
     if fav_checked or fav_removed:
-        print(f"verify_fav checked={fav_checked} removed={fav_removed}")
+        log_line(f"verify_fav checked={fav_checked} removed={fav_removed}")
 
     removed = prune_deleted_published(cfg, reports)
     if removed:
@@ -2234,7 +2282,7 @@ def main_once():
         auto_git_push_reports(cfg)
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    print(f"Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
+    log_line(f"Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
 
     return {
         'added_pending': int(added_pending),
@@ -2253,13 +2301,14 @@ def main():
     # - backoff when idle
     stages = [2, 6, 15, 30, 60, 120]  # seconds
     idle_i = 0
+    print(f"START v={__version__}")
 
     while True:
         stats = None
         try:
             stats = main_once()
         except Exception as e:
-            print(f"loop ERROR err={e!r}")
+            log_line(f"loop ERROR err={e!r}")
 
         # Define "activity"
         pending_left = int((stats or {}).get("pending_left", 0) or 0)
@@ -2288,4 +2337,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--once" in sys.argv:
+        main_once()
+    else:
+        main()
