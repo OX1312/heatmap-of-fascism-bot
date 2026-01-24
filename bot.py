@@ -1777,10 +1777,16 @@ def main_once():
         print(f"cfg_override test_mode={_tm} via ENV")
 
     test_mode = bool(cfg.get("test_mode", True))
-    if test_mode:
+    # auto_mode controls ONLY the Git auto-push.
+    # Backwards compatible: if auto_mode is missing, treat auto_push_reports as alias.
+    auto_mode = bool(cfg.get("auto_mode", cfg.get("auto_push_reports", False)))
+    cfg["auto_push_reports"] = bool(auto_mode)
+
+    # In TEST_MODE: auto-push stays OFF unless auto_mode is enabled.
+    if test_mode and not auto_mode:
         cfg["auto_push_reports"] = False
 
-    log_line(f"RUN v={__version__} test_mode={test_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
+    log_line(f"RUN v={__version__} test_mode={test_mode} auto_mode={auto_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
 
     secrets = load_json(SECRETS_PATH, None)
     if not secrets or not secrets.get("access_token"):
