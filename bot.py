@@ -13,7 +13,7 @@
 #   - #sticker_removed -> removed
 #
 # Files:
-# - config.json            (tracked)  rules + instance_url + user_agent + hashtags + stale_after_days + accuracy
+# - config.json            (tracked)  rules + instance_url + user_agent + hashtags + accuracy
 # - secrets.json           (local, NOT tracked) {"access_token":"..."}
 # - trusted_accounts.json  (local, NOT tracked) ["heatmapoffascism","buntepanther", ...]  (reviewers who may FAV-approve)
 # - cache_geocode.json     (tracked)  geocode cache
@@ -23,7 +23,7 @@
 # Status model:
 # - "present"  = confirmed present
 # - "removed"  = confirmed removed
-# - "unknown"  = stale/uncertain (was present but not confirmed for stale_after_days)
+# - "unknown"  = stale/uncertain (was present but not confirmed for 30 days)
 #
 # Dupe merge on publish:
 # If distance <= max(existing.radius_m, new.radius_m) AND sticker_type matches OR one is "unknown"
@@ -1588,7 +1588,7 @@ def reports_id_set(reports: Dict[str, Any]) -> set:
             ids.add(p["id"])
     return ids
 
-def apply_stale_rule(reports: Dict[str, Any], stale_after_days: int) -> int:
+def apply_stale_rule(reports: Dict[str, Any]) -> int:
     """
     Product rule:
       - present -> unknown if not confirmed for N days
@@ -1612,9 +1612,8 @@ def apply_stale_rule(reports: Dict[str, Any], stale_after_days: int) -> int:
         last_seen = parse_date(str(p.get("last_seen", "")))
         if not last_seen:
             continue
-        if (today - last_seen).days >= stale_after_days:
+        if (today - last_seen).days >= 30:
             p["status"] = "unknown"
-            p["stale_after_days"] = int(stale_after_days)
             changed += 1
 
     return changed
@@ -1635,7 +1634,6 @@ def make_product_feature(
     geocode_method: str,  # gps | nominatim | overpass_node | overpass_nearest | fallback
     location_text: str,
     media: List[str],
-    stale_after_days: int,
     removed_at: Optional[str],
 ) -> Dict[str, Any]:
     return {
@@ -1655,7 +1653,6 @@ def make_product_feature(
             "seen_count": 1,
 
             "removed_at": removed_at,
-            "stale_after_days": int(stale_after_days),
 
             "accuracy_m": int(accuracy_m),
             "radius_m": int(radius_m),
@@ -1916,7 +1913,6 @@ def main_once():
     cfg["access_token"] = secrets["access_token"]
 
     # Accuracy/radius defaults
-    stale_after_days = int(cfg.get("stale_after_days", 30))
     acc_cfg = cfg.get("accuracy") or {}
 
     ACC_GPS = int(acc_cfg.get("gps_m", 10))
@@ -2322,7 +2318,6 @@ def main_once():
             geocode_method=str(item.get("geocode_method") or "nominatim"),
             location_text=str(item.get("location_text") or ""),
             media=list(item.get("media") or []),
-            stale_after_days=int(stale_after_days),
             removed_at=new_removed_at,
         )
 

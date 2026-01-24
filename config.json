@@ -3,9 +3,7 @@
   "user_agent": "HeatmapOfFascismBot/0.2.0",
   "hashtags": {
     "sticker_report": "present",
-    "sticker_removed": "removed",
-    "graffiti_report": "present",
-    "graffiti_removed": "removed"
+    "graffiti_report": "present"
   },
   "allowed_reviewers": [
     "HeatmapofFascism"
