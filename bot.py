@@ -1683,7 +1683,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson") -> None:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         print(f"auto_push ERROR exc={e!r}")
 
-def main():
+def main_once():
     # Ensure baseline files exist
     ensure_object_file(CACHE_PATH)
     ensure_array_file(PENDING_PATH)
@@ -2200,6 +2200,57 @@ def main():
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     print(f"Added pending: {added_pending} | Published: {published} | Pending left: {len(still_pending)}")
+
+    return {
+        'added_pending': int(added_pending),
+        'published': int(published),
+        'pending_left': int(len(still_pending)),
+        'removed': int(removed or 0),
+        'fav_removed': int(fav_removed or 0),
+        'verify_deleted_removed': int(v_removed or 0),
+        'ctx_changed': int(ctx_changed or 0),
+    }
+
+
+def main():
+    # Adaptive polling:
+    # - fast when there is PENDING work
+    # - backoff when idle
+    stages = [2, 6, 15, 30, 60, 120]  # seconds
+    idle_i = 0
+
+    while True:
+        stats = None
+        try:
+            stats = main_once()
+        except Exception as e:
+            print(f"loop ERROR err={e!r}")
+
+        # Define "activity"
+        pending_left = int((stats or {}).get("pending_left", 0) or 0)
+        did_work = bool(
+            (stats or {}).get("added_pending")
+            or (stats or {}).get("published")
+            or (stats or {}).get("removed")
+            or (stats or {}).get("fav_removed")
+            or (stats or {}).get("verify_deleted_removed")
+            or (stats or {}).get("ctx_changed")
+        )
+
+        # Sleep logic
+        if pending_left > 0:
+            # keep approval/review responsive
+            sleep_s = 15
+            idle_i = 0
+        elif did_work:
+            sleep_s = stages[0]
+            idle_i = 0
+        else:
+            idle_i = min(idle_i + 1, len(stages) - 1)
+            sleep_s = stages[idle_i]
+
+        time.sleep(float(sleep_s))
+
 
 if __name__ == "__main__":
     main()
