@@ -35,6 +35,8 @@ __version__ = "0.2.4"
 import ssl
 import certifi
 import os
+
+TZ_BERLIN = ZoneInfo("Europe/Berlin")
 ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
 
 SSL_CTX = ssl.create_default_context(cafile=certifi.where())
@@ -200,8 +202,11 @@ def print(*args, **kwargs):
                 if _EVENT_LAST_BY_KEY.get(k) == sig:
                     continue
 
-            ts = datetime.now().astimezone()
-            prefix = ts.strftime("%Y-%m-%d // %H:%M:%S")
+            ts = datetime.now(TZ_BERLIN)
+            prefix = ts.strftime("%Y-%m-%d // %H:%M:%S%z")
+            # +0100 -> +01:00 for readability
+            if len(prefix) >= 5:
+                prefix = prefix[:-2] + ":" + prefix[-2:]
             full = f"{prefix} - {line}" if line else f"{prefix} -"
 
             _append(NORMAL_LOG_PATH, full)
@@ -1178,7 +1183,7 @@ def maybe_send_manager_update_dms(cfg: Dict[str, Any], managers_set: set) -> int
         if not msg:
             out["skipped"] = "empty_message"
             save_json(MANAGER_UPDATE_STATE_PATH, out)
-            log_line(f"manager_update skip=empty_message managers={out['managers_count']} msg_len=0")
+        # skip empty manager update silently (avoid log spam)
             return 0
 
         # Dedup: same message already sent
@@ -2578,6 +2583,25 @@ def main_once():
         text = strip_html(st.get("content", ""))
         attachments = st.get("media_attachments", [])
         if not has_image(attachments):
+            # If user attached media but no IMAGE, it's usually video/gifv/audio -> deny clearly
+            try:
+                kinds = {(a or {}).get('type') for a in (attachments or [])}
+            except Exception:
+                kinds = set()
+            if kinds and ('image' not in kinds):
+                reply_once(
+                    cfg, cache, f"no_image_media:{status_id}", str(status_id),
+                    "🤖 ⚠️ Media not supported\n\n"
+                    "Please repost with ONE photo image (no video / gif / audio).\n\n"
+                    "FCK RACISM. ✊ ALERTA ALERTA."
+                )
+                continue
+            reply_once(
+                cfg, cache, f"no_image:{status_id}", str(status_id),
+                "🤖 ⚠️ Missing photo\n\n"
+                "Please repost with ONE photo image (no video).\n\n"
+                "FCK RACISM. ✊ ALERTA ALERTA."
+            )
             continue
 
         media_urls = [
