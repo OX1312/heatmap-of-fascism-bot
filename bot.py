@@ -35,6 +35,7 @@ __version__ = "0.2.4"
 import ssl
 import certifi
 import os
+from zoneinfo import ZoneInfo
 
 TZ_BERLIN = ZoneInfo("Europe/Berlin")
 ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())
@@ -262,7 +263,7 @@ RE_ADDRESS = re.compile(r"^(.+?)\s+(\d+[a-zA-Z]?)\s*,\s*(.+)$")  # "Street 12, C
 RE_STREET_CITY = re.compile(r"^(.+?)\s*,\s*(.+)$")  # "Street, City"
 RE_CROSS = re.compile(r"^(.+?)\s*(?:/| x | & )\s*(.+?)\s*,\s*(.+)$", re.IGNORECASE)  # "A / B, City"
 RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(.+?)\s*$", re.IGNORECASE)
-RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:?\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
+RE_STICKER_TYPE = re.compile(r"(?im)^\s*#(?:sticker|graffiti|grafitti)_(?:type|typ)\s*:?\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
 RE_NOTE = re.compile(r"(?is)(?:^|\s)#note\s*:\s*(.+?)(?=(?:\s#[\w_]+)|$)")
 
 # =========================
@@ -275,8 +276,8 @@ OVERPASS_ENDPOINTS = (
     "https://overpass.openstreetmap.ru/api/interpreter",
 )
 
-DELAY_TAG_FETCH = 0.15
-DELAY_FAV_CHECK = 0.35
+DELAY_TAG_FETCH = 0.05
+DELAY_FAV_CHECK = 0.20
 DELAY_NOMINATIM = 1.0
 
 OVERPASS_TIMEOUT_S = 45
@@ -705,6 +706,39 @@ def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[s
       OR a query string if address/crossing/street+city found in ANY non-hashtag line
       OR (None, None) if invalid
     """
+    import html as _html
+    text = _html.unescape(text)
+
+    # Accept DMS coord formats (Google Maps) before RE_COORDS
+    # Example: 52°31'20"N 13°22'14"E
+    def _coords_dms(ss: str):
+        import re
+        pat = r"(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\'’′]\s*(\d{1,2}(?:[\.,]\d+)?)\s*(?:[\"”″])?\s*([NSEW])"
+        hits = re.findall(pat, ss, flags=re.IGNORECASE)
+        if not hits:
+            return None
+        def to_dd(deg, minutes, seconds, hemi):
+            dd = float(deg) + float(minutes)/60.0 + float(str(seconds).replace(',', '.'))/3600.0
+            h = str(hemi).upper()
+            if h in ('S','W'):
+                dd = -dd
+            return dd, h
+        lat = None
+        lon = None
+        for deg, mi, sec, hemi in hits:
+            dd, h = to_dd(deg, mi, sec, hemi)
+            if h in ('N','S') and lat is None and -90.0 <= dd <= 90.0:
+                lat = dd
+            if h in ('E','W') and lon is None and -180.0 <= dd <= 180.0:
+                lon = dd
+            if lat is not None and lon is not None:
+                return (lat, lon)
+        return None
+
+    c_dms = _coords_dms(text)
+    if c_dms:
+        return (float(c_dms[0]), float(c_dms[1])), None
+
     m = RE_COORDS.search(text)
     if m:
         return (float(m.group(1)), float(m.group(2))), None
@@ -1395,14 +1429,20 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None 
         params["max_id"] = str(max_id)
 
     r = requests.get(url, headers=headers, params=params, timeout=MASTODON_TIMEOUT_S)
-    # one compact line so we can grep it
-    print(f"hashtag_timeline tag={tag} http={r.status_code} since_id={since_id or '-'} max_id={max_id or '-'}")
+
+    # Noise reduction:
+    # - log http line only on non-200
+    # - log items line only when we actually got items (>0)
+    if r.status_code != 200:
+        print(f"hashtag_timeline tag={tag} http={r.status_code} since_id={since_id or '-'} max_id={max_id or '-'}")
+
     r.raise_for_status()
     data = r.json()
-    try:
-        print(f"hashtag_timeline tag={tag} items={len(data)}")
-    except Exception:
-        pass
+
+    n = len(data) if isinstance(data, list) else 0
+    if n > 0:
+        print(f"hashtag_timeline tag={tag} http=200 items={n} since_id={since_id or '-'} max_id={max_id or '-'}")
+
     return data
 
 class StatusDeleted(Exception):
@@ -1645,6 +1685,64 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
     return checked, removed
 
 
+def refresh_types_features(cfg: Dict[str, Any], reports: Dict[str, Any], limit: int = 50) -> int:
+    """
+    On-demand maintenance:
+    - Fetch source posts for features where sticker_type == "unknown"
+    - If the source post now contains #sticker_type/#sticker_typ/#graffiti_type/#graffiti_typ (etc),
+      update properties["sticker_type"] accordingly.
+    - Does NOT push to git. Caller decides.
+    Returns: updated_count
+    """
+    feats = reports.get("features") or []
+    if not isinstance(feats, list) or not feats:
+        return 0
+
+    cands = []
+    for idx, f in enumerate(feats):
+        props = (f or {}).get("properties") or {}
+        if (props.get("sticker_type") or "unknown") != "unknown":
+            continue
+        inst, sid = derive_status_ref(props)
+        if not inst or not sid:
+            continue
+        key = str(props.get("last_seen") or props.get("first_seen") or "")
+        cands.append((key, idx, inst, sid))
+
+    if not cands:
+        return 0
+
+    cands.sort(key=lambda x: x[0])
+    budget = max(0, int(limit))
+    checked = 0
+    updated = 0
+
+    for _, idx, inst, sid in cands[:budget]:
+        checked += 1
+        try:
+            st = fetch_status(cfg, inst, str(sid))
+        except StatusDeleted:
+            continue
+        except Exception:
+            continue
+
+        if not st:
+            continue
+
+        text = strip_html(st.get("content") or "")
+        stype = parse_sticker_type(text)
+
+        if stype and stype != "unknown":
+            props = (feats[idx] or {}).get("properties") or {}
+            props["sticker_type"] = stype
+            updated += 1
+
+    if checked:
+        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        print(f"{ts} refresh_types checked={checked} updated={updated}")
+
+    return int(updated)
+
 def derive_status_ref(props: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """
     Return (instance_url, status_id) from props.
@@ -1687,7 +1785,7 @@ def _extract_flags_and_type(text: str) -> tuple[bool, bool, str]:
     has_seen = "#sticker_seen" in t
 
     # sticker_type: allow "#sticker_type: xxx" anywhere
-    m = re.search(r"#sticker_type\s*:\s*([^\n\r#]+)", text or "", flags=re.IGNORECASE)
+    m = re.search(r"#(?:sticker|graffiti|grafitti)_(?:type|typ)\s*:\s*([^\n\r#]+)", text or "", flags=re.IGNORECASE)
     stype = (m.group(1).strip() if m else "")
     return has_removed, has_seen, stype
 
@@ -2202,23 +2300,7 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
         elif ev_s in ("removed", "remove", "gone", "deleted"):
             ev_s = "removed"
         normalized[tag] = ev_s
-
-    # ensure we also poll legacy timelines if only one side is configured
-    if "sticker_report" in normalized and "report_sticker" not in normalized:
-        normalized["report_sticker"] = normalized["sticker_report"]
-    if "report_sticker" in normalized and "sticker_report" not in normalized:
-        normalized["sticker_report"] = normalized["report_sticker"]
-
-    if "graffiti_report" in normalized and "report_graffiti" not in normalized:
-        normalized["report_graffiti"] = normalized["graffiti_report"]
-    if "report_graffiti" in normalized and "graffiti_report" not in normalized:
-        normalized["graffiti_report"] = normalized["report_graffiti"]
-
-    if "graffiti_removed" in normalized and "grafitty_removed" not in normalized:
-        normalized["grafitty_removed"] = normalized["graffiti_removed"]
-    if "grafitty_removed" in normalized and "graffiti_removed" not in normalized:
-        normalized["graffiti_removed"] = normalized["grafitty_removed"]
-
+    # legacy hashtag polling: disabled by default (configure explicitly if needed)
     tags_map = normalized
 
     for tag, event in tags_map.items():
@@ -2271,13 +2353,12 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
                 st_state[tag_key] = newest
                 save_json(TIMELINE_STATE_PATH, st_state)
 
+
         # Process oldest -> newest for stable behavior
         statuses = sorted(statuses, key=lambda x: int(str(x.get("id") or "0")))
 
         for st in statuses:
             yield tag, event, st
-        time.sleep(DELAY_TAG_FETCH)
-
 
 def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: str = "dirty") -> None:
     """
@@ -2648,6 +2729,20 @@ def main_once():
             added_pending += 1
             continue
         coords, q = parse_location(text)
+        lowacc = False
+        if q and str(q).startswith('LOWACC:'):
+            lowacc = True
+            q = str(q)[len('LOWACC:'):].strip()
+        if lowacc:
+            _sid = str(locals().get('status_id') or locals().get('sid') or '').strip()
+            if _sid:
+                reply_once(
+                    cfg, cache, f"lowacc:{_sid}", _sid,
+                    "🤖 ℹ️ Location is imprecise\n\n"
+                    "Street + city only is allowed, but the pin may be far off. "
+                    "For accuracy please add house number / crossing or coordinates (lat, lon).\n\n"
+                    "FCK RACISM. ✊ ALERTA ALERTA."
+                )
         if not coords and not q:
             # NEEDS_INFO: keep the report and ask publicly for a usable location
             needs_item = {
@@ -2846,10 +2941,8 @@ def main_once():
                 try:
                     st = fetch_status(cfg, cfg.get("instance_url", ""), sid) or {}
                     html = str(st.get("content") or "")
-                    # cheap HTML -> text (good enough for coords + tags)
                     text = re.sub(r"<[^>]+>", " ", html)
                     text = re.sub(r"\s+", " ", text).strip()
-
                     coords, q = parse_location(text)
                     if coords:
                         lat, lon = coords
@@ -2858,13 +2951,23 @@ def main_once():
                         item["accuracy_m"] = int(ACC_GPS)
                         item["radius_m"] = int(ACC_GPS)
                         item["geocode_method"] = "gps"
-                        item["location_text"] = f"{lat}, {lon}"
+                        item["location_text"] = str(lat) + ", " + str(lon)
                         item["sticker_type"] = parse_sticker_type(text)
                         item["error"] = None
                         item["status"] = "PENDING"
-                        item["replied_pending"] = None  # allow pending ack replace
-                        print(f"needs_info_promoted status={sid} -> PENDING")
-                except Exception:
+                        item["replied_pending"] = None
+                        print("needs_info_promoted status=%s -> PENDING" % sid)
+                except StatusDeleted:
+                    log_line("drop_needs_info status_id=%s reason=deleted_404" % sid)
+                    continue
+                except Exception as e:
+                    try:
+                        sc = getattr(getattr(e, "response", None), "status_code", None)
+                    except Exception:
+                        sc = None
+                    if sc in (404, 410):
+                        log_line("drop_needs_info status_id=%s reason=http_%s" % (sid, sc))
+                        continue
                     pass
             still_pending.append(item)
             continue
@@ -3039,7 +3142,7 @@ def main():
     # Adaptive polling:
     # - fast when there is PENDING work
     # - backoff when idle
-    stages = [2, 6, 15, 30, 60, 120]  # seconds
+    stages = [2, 4, 8, 15, 30]  # seconds
     idle_i = 0
     print(f"START v={__version__}")
 
@@ -3075,7 +3178,7 @@ def main():
         # Sleep logic
         if pending_left > 0:
             # keep approval/review responsive
-            sleep_s = 15
+            sleep_s = 5
             idle_i = 0
         elif did_work:
             sleep_s = stages[0]
@@ -3089,6 +3192,47 @@ def main():
 
 if __name__ == "__main__":
     import sys
+
+    if "--refresh-types" in sys.argv:
+        # Usage: python3 bot.py --refresh-types 50
+        try:
+            i = sys.argv.index("--refresh-types")
+            limit = 50
+            if i + 1 < len(sys.argv):
+                try:
+                    limit = int(sys.argv[i + 1])
+                except Exception:
+                    limit = 50
+        except Exception:
+            limit = 50
+
+        # Minimal init (NO auto push)
+        ensure_reports_file()
+
+        cfg = load_json(CFG_PATH, None)
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        # secrets (new: secrets/secrets.json, legacy fallback: ./secrets.json)
+        SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+        secrets = load_json(SECRETS_PATH, None)
+        if not secrets or not secrets.get("access_token"):
+            legacy = load_json(ROOT / "secrets.json", None)
+            if legacy and legacy.get("access_token"):
+                secrets = legacy
+
+        if not secrets or not secrets.get("access_token"):
+            print("refresh_types ERROR: missing access_token in secrets.")
+            raise SystemExit(2)
+
+        cfg["access_token"] = secrets["access_token"]
+
+        reports = load_json(REPORTS_PATH, {"type": "FeatureCollection", "features": []})
+        updated = refresh_types_features(cfg, reports, limit=limit)
+        if updated:
+            save_json(REPORTS_PATH, reports)
+        raise SystemExit(0)
+
     if "--once" in sys.argv:
         main_once()
     else:
