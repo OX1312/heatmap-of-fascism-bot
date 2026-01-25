@@ -52,3 +52,6 @@ pending.json
 # tracked cleanup (keep repo readable)
 bot.py.bak
 trusted_accounts.json
+
+# local backups
+*.bak-*
