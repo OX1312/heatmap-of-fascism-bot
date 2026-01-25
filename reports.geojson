@@ -62,6 +62,36 @@
         ],
         "notes": ""
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.6926602,
+          53.8503179
+        ]
+      },
+      "properties": {
+        "id": "masto-115952968267262297",
+        "source": "https://mastodon.social/@HeatmapofFascism/115952968267262297",
+        "status_id": "115952968267262297",
+        "instance_url": "https://mastodon.social",
+        "status": "present",
+        "sticker_type": "AFD",
+        "first_seen": "2026-01-25",
+        "last_seen": "2026-01-25",
+        "seen_count": 1,
+        "removed_at": null,
+        "accuracy_m": 10,
+        "radius_m": 10,
+        "geocode_method": "gps+snap_walk:footway",
+        "location_text": "53.85007, 10.69232",
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg"
+        ],
+        "notes": ""
+      }
     }
   ]
 }
