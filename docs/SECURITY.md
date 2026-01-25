@@ -5,7 +5,7 @@ Security-sensitive details must never be published (GitHub, README, docs, public
 
 ## What is considered sensitive
 - access tokens / secrets
-- any content inside `secrets/`
+- Never publish secrets or private operational details.
 - internal admin workflows
 - internal moderation/manager tooling details
 - rate-limit / anti-abuse internals that can be weaponized

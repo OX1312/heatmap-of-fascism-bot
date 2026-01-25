@@ -8,15 +8,14 @@
 - `ox` – helper commands (start/stop/status)
 
 **NOT tracked (local runtime, gitignored):**
-- `secrets/` – tokens + manager DM message/state + trusted/blacklist lists
+- Local secrets/runtime data (not tracked)
 - `logs/`, `errors/` – runtime logs
 - `_backup/` – local backups
 - `pending.json`, `timeline_state.json`, `cache_geocode.json` – runtime state/cache
 
 ### Safety rules
-- **Never commit tokens**. Tokens live only in `secrets/secrets.json`.
-- Manager update texts live in `secrets/manager_update_message.txt` (private).
-- Runtime state is **always gitignored**.
+- Never commit secrets or private operational data.
+- Keep internal ops/private workflows out of public docs.
 
 # Heatmap of Fascism (BETA)
 

@@ -10,7 +10,7 @@ This repository contains a single-file Mastodon bot that turns explicit user rep
 - `docs/` — public documentation
 
 ## What is NOT tracked (local only)
-- `secrets/` — tokens and other sensitive runtime data
+- Secrets are stored locally and are not tracked.
 - `logs/`, `errors/`, runtime caches/state files
 
 ## Local development (safe summary)

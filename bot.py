@@ -14,8 +14,6 @@
 #
 # Files:
 # - config.json            (tracked)  rules + instance_url + user_agent + hashtags + accuracy
-# - secrets.json           (local, NOT tracked) {"access_token":"..."}
-# - trusted_accounts.json  (local, NOT tracked) ["heatmapoffascism","buntepanther", ...]  (reviewers who may FAV-approve)
 # - cache_geocode.json     (tracked)  geocode cache
 # - pending.json           (tracked)  pending items waiting for approval
 # - reports.geojson        (tracked)  single source of truth (FeatureCollection)
@@ -2460,7 +2458,7 @@ def main_once():
         legacy = ROOT / "secrets.json"
         secrets = load_json(legacy, None)
     if not secrets or not secrets.get("access_token"):
-        raise SystemExit('Missing secrets.json (needs: {"access_token":"..."})')
+        raise SystemExit('Missing secrets (local setup required).')
 
     cfg["access_token"] = secrets["access_token"]
     # auto-sync managers + blacklist (following/blocks)
