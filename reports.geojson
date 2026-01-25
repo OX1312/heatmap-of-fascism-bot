@@ -29,7 +29,11 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/951/200/700/979/490/original/64dbe658c21bd8f2.jpg"
         ],
-        "notes": ""
+        "notes": "",
+        "lat": 53.57391661106398,
+        "lon": 9.943659608154134,
+        "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
+        "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111"
       }
     },
     {
@@ -60,7 +64,11 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/951/396/926/838/171/original/22e1ea4ba2432527.jpg"
         ],
-        "notes": ""
+        "notes": "",
+        "lat": 53.5640479,
+        "lon": 9.9850151,
+        "name": "sticker auf1 2026-01 present #9503",
+        "description": "kind=sticker\ncat=auf1\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951397353469503"
       }
     },
     {
@@ -90,7 +98,11 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg"
         ],
-        "notes": ""
+        "notes": "",
+        "lat": 53.8503179,
+        "lon": 10.6926602,
+        "name": "sticker AFD 2026-01 present #2297",
+        "description": "kind=sticker\ncat=AFD\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115952968267262297"
       }
     },
     {
@@ -120,7 +132,11 @@
         "location_text": "52.52222222222222, 13.370555555555557",
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg"
-        ]
+        ],
+        "lat": 52.52222222222222,
+        "lon": 13.370555555555557,
+        "name": "sticker 1161 2026-01 present #5370",
+        "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956523282215370"
       }
     },
     {
@@ -150,7 +166,11 @@
         "location_text": "51.955382, 12.895656",
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg"
-        ]
+        ],
+        "lat": 51.95541397936858,
+        "lon": 12.895855039894002,
+        "name": "sticker 1161 2026-01 present #9362",
+        "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956581847599362"
       }
     }
   ]
