@@ -530,6 +530,48 @@ out ids;
         elems = data.get("elements") or []
         return bool(elems)
 
+    def fetch_pois(r_m: int) -> list:
+        # Public-ish street furniture POIs for sticker-like reports
+        q = f"""
+[out:json][timeout:25];
+(
+  node(around:{r_m},{lat0},{lon0})["leisure"="bench"];
+  node(around:{r_m},{lat0},{lon0})["amenity"~"^(waste_basket|waste_disposal)$"];
+  node(around:{r_m},{lat0},{lon0})["highway"="street_lamp"];
+);
+out tags;
+""".strip()
+        data = _overpass_post(q, user_agent)
+        if not data or not isinstance(data, dict):
+            return []
+        elems = data.get("elements") or []
+        return elems if isinstance(elems, list) else []
+
+    def nearest_public_poi(r_m: int = 15):
+        elems = fetch_pois(r_m)
+        best = None  # (dist_m, lat, lon, note)
+        for e in elems:
+            if e.get("type") != "node":
+                continue
+            tags = e.get("tags") or {}
+            if not is_public(tags):
+                continue
+            if "lat" not in e or "lon" not in e:
+                continue
+            plat, plon = float(e["lat"]), float(e["lon"])
+            d = haversine_m(lat0, lon0, plat, plon)
+            if best is None or d < best[0]:
+                note = "poi"
+                if (tags.get("leisure") or "").strip().lower() == "bench":
+                    note = "bench"
+                elif (tags.get("amenity") or "").strip().lower() in {"waste_basket","waste_disposal"}:
+                    note = "waste"
+                elif (tags.get("highway") or "").strip().lower() == "street_lamp":
+                    note = "lamp"
+                best = (d, plat, plon, note)
+        return None if best is None else (best[1], best[2], best[3])
+
+
     def fetch_highways(r_m: int, only_walk: bool) -> list:
         if only_walk:
             # only walkable highway types
@@ -588,6 +630,15 @@ out tags geom;
                 continue
             cands.append((hw, pts, tags))
         return cands
+
+    # 0) Prefer nearby public street-furniture POIs (bench/waste/lamp) when available
+    poi = nearest_public_poi(r_m=15)
+    if poi:
+        plat, plon, pnote = poi
+        # tiny building sanity: ignore POIs that would land on/inside buildings
+        if not building_nearby(plat, plon, r_m=4):
+            return plat, plon, f"snap_poi:{pnote}"
+
 
     elems = fetch_highways(R_M, only_walk=False)
     cands = collect_candidates(elems)
@@ -3210,6 +3261,21 @@ def main():
 
 
 def normalize_reports_geojson(reports: dict) -> None:
+
+    def _ym_fields(d: str):
+        # expects ISO date 'YYYY-MM-DD' (or empty)
+        d = (str(d or "")).strip()
+        if len(d) < 7:
+            return None
+        y = d[0:4]
+        m = d[5:7] if len(d) >= 7 else ""
+        if not (y.isdigit() and m.isdigit()):
+            return None
+        yi = int(y)
+        mi = int(m)
+        if yi < 1900 or yi > 2100 or mi < 1 or mi > 12:
+            return None
+        return yi, mi, f"{y}-{m}"
     """Hard safety: ensure properties.lat/lon exist and match geometry (GeoJSON is [lon,lat])."""
     feats = (reports or {}).get("features") or []
     for f in feats:
@@ -3224,6 +3290,20 @@ def normalize_reports_geojson(reports: dict) -> None:
         except Exception:
             continue
         p = f.get("properties") or {}
+
+        # Derived date fields for statistics (avoid duplicate truth)
+        fs = p.get("first_seen") or ""
+        ls = p.get("last_seen") or ""
+        _fs = _ym_fields(fs)
+        _ls = _ym_fields(ls)
+        if _fs:
+            p["first_seen_year"], p["first_seen_month"], p["first_seen_ym"] = _fs
+        else:
+            p["first_seen_year"], p["first_seen_month"], p["first_seen_ym"] = None, None, ""
+        if _ls:
+            p["last_seen_year"], p["last_seen_month"], p["last_seen_ym"] = _ls
+        else:
+            p["last_seen_year"], p["last_seen_month"], p["last_seen_ym"] = None, None, ""
         if p.get("lat") is None or p.get("lon") is None:
             p["lat"] = lat
             p["lon"] = lon

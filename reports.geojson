@@ -33,7 +33,13 @@
         "lat": 53.57391661106398,
         "lon": 9.943659608154134,
         "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
-        "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111"
+        "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -68,7 +74,13 @@
         "lat": 53.5640479,
         "lon": 9.9850151,
         "name": "sticker auf1 2026-01 present #9503",
-        "description": "kind=sticker\ncat=auf1\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951397353469503"
+        "description": "kind=sticker\ncat=auf1\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951397353469503",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -102,7 +114,13 @@
         "lat": 53.8503179,
         "lon": 10.6926602,
         "name": "sticker AFD 2026-01 present #2297",
-        "description": "kind=sticker\ncat=AFD\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115952968267262297"
+        "description": "kind=sticker\ncat=AFD\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115952968267262297",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -136,7 +154,13 @@
         "lat": 52.52222222222222,
         "lon": 13.370555555555557,
         "name": "sticker 1161 2026-01 present #5370",
-        "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956523282215370"
+        "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956523282215370",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -170,7 +194,13 @@
         "lat": 51.95541397936858,
         "lon": 12.895855039894002,
         "name": "sticker 1161 2026-01 present #9362",
-        "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956581847599362"
+        "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956581847599362",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     }
   ]
