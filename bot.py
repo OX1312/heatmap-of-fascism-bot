@@ -811,6 +811,91 @@ def parse_entity(text: str) -> tuple[str, str]:
             return raw, key
     return "", ""
 
+# -------------------------
+# IDLE ENTITY ENRICH (WIKI)
+# -------------------------
+_LAST_ENTITY_ENRICH_TS = 0.0
+_ENTITY_ENRICH_CURSOR = 0
+
+def _wiki_summary(lang: str, title: str, user_agent: str) -> str:
+    # Wikipedia REST summary endpoint (short extract)
+    import json as _json
+    import urllib.parse as _up
+    import urllib.request as _ur
+    url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{_up.quote(title)}"
+    req = _ur.Request(url, headers={"User-Agent": user_agent or "HeatmapOfFascismBot/EntityEnrich"})
+    with _ur.urlopen(req, timeout=20) as r:
+        data = _json.loads(r.read().decode("utf-8"))
+    txt = (data.get("extract") or "").strip()
+    if len(txt) > 260:
+        txt = txt[:257].rstrip() + "…"
+    return txt
+
+def maybe_idle_enrich_entities(cfg: dict) -> None:
+    """
+    When idle, enrich ONE missing entity description per interval and cache it in entities.json.
+    Safe rules:
+    - Only if entities.json exists and contains wiki_* title.
+    - Only if desc is empty.
+    - Rate-limited by entity_enrich_min_interval_s.
+    """
+    global _LAST_ENTITY_ENRICH_TS, _ENTITY_ENRICH_CURSOR
+    try:
+        if not bool(cfg.get("entity_enrich_idle", True)):
+            return
+        min_iv = float(cfg.get("entity_enrich_min_interval_s", 1800) or 1800)
+        lang = str(cfg.get("entity_enrich_lang", "de") or "de").strip().lower()
+        now = time.time()
+        if (now - float(_LAST_ENTITY_ENRICH_TS)) < min_iv:
+            return
+
+        p = Path("entities.json")
+        if not p.exists():
+            return
+
+        ent = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(ent, dict) or not ent:
+            return
+
+        keys = sorted(ent.keys())
+        if not keys:
+            return
+
+        start = int(_ENTITY_ENRICH_CURSOR) % len(keys)
+        picked = None
+
+        # round-robin scan for first missing desc with wiki title
+        for i in range(len(keys)):
+            k = keys[(start + i) % len(keys)]
+            e = ent.get(k) or {}
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("desc") or "").strip():
+                continue
+            title = e.get(f"wiki_{lang}") or e.get("wiki_de") or e.get("wiki_en")
+            if not title:
+                continue
+            picked = (k, e, str(title))
+            _ENTITY_ENRICH_CURSOR = (start + i + 1) % len(keys)
+            break
+
+        if not picked:
+            return
+
+        k, e, title = picked
+        ua = str(cfg.get("user_agent") or "HeatmapOfFascismBot/EntityEnrich")
+        txt = _wiki_summary(lang, title, ua)
+        if txt:
+            e["desc"] = txt
+            ent[k] = e
+            p.write_text(json.dumps(ent, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            _LAST_ENTITY_ENRICH_TS = now
+            log_line(f"entity_enrich ok key={k} lang={lang} title={title}")
+        else:
+            log_line(f"entity_enrich skip key={k} lang={lang} title={title} reason=empty")
+    except Exception as ex:
+        log_line(f"entity_enrich ERROR err={ex!r}")
+
 def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
     """
     Returns:
@@ -1605,6 +1690,7 @@ def prune_deleted_published(cfg: dict, reports: dict) -> int:
         except StatusDeleted as e:
             removed += 1
             from datetime import datetime, timezone
+
             ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
             print(f"prune_drop_deleted status_id={status_id} reason={e}")
         except Exception:
@@ -2341,6 +2427,15 @@ def make_product_feature(
     notes: str,
     removed_at: Optional[str],
 ) -> Dict[str, Any]:
+    # Idle background: enrich one missing entity description (cached in entities.json)
+    if (len(still_pending) == 0 and int(added_pending) == 0 and int(published) == 0
+        and int(removed or 0) == 0 and int(fav_removed or 0) == 0 and int(v_removed or 0) == 0
+        and int(ctx_changed or 0) == 0):
+        try:
+            maybe_idle_enrich_entities(cfg)
+        except Exception as e:
+            log_line(f"idle_enrich ERROR err={e!r}")
+
     return {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
