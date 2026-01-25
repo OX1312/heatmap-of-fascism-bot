@@ -92,6 +92,36 @@
         ],
         "notes": ""
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          13.370555555555557,
+          52.52222222222222
+        ]
+      },
+      "properties": {
+        "id": "masto-115956523282215370",
+        "source": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956523282215370",
+        "status_id": "115956523282215370",
+        "instance_url": "https://mastodon.social",
+        "status": "present",
+        "sticker_type": "unknown",
+        "notes": "",
+        "first_seen": "2026-01-25",
+        "last_seen": "2026-01-25",
+        "seen_count": 1,
+        "removed_at": null,
+        "accuracy_m": 10,
+        "radius_m": 10,
+        "geocode_method": "gps",
+        "location_text": "52.52222222222222, 13.370555555555557",
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg"
+        ]
+      }
     }
   ]
 }
