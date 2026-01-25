@@ -48,3 +48,7 @@ _backup/
 timeline_state.json
 pending.json
 .autopush_state.json
+
+# tracked cleanup (keep repo readable)
+bot.py.bak
+trusted_accounts.json
