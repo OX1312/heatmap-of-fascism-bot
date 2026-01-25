@@ -19,5 +19,6 @@
   "test_mode": false,
   "auto_mode": true,
   "dm_welcome_managers": true,
-  "dm_manager_updates": true
+  "dm_manager_updates": true,
+  "snap_max_m": 20
 }
