@@ -2629,6 +2629,7 @@ def main_once():
 
     # Persist ONLY when reports content changed (keeps repo clean on normal runs)
     if (v_removed > 0) or (ctx_changed > 0):
+        normalize_reports_geojson(reports)
         save_json(REPORTS_PATH, reports)
 
     reports_ids = reports_id_set(reports)
@@ -2789,17 +2790,28 @@ def main_once():
 
         if coords:
             lat, lon = coords
+            lat = float(lat)
+            lon = float(lon)
+
             geocode_method = "gps"
             accuracy_m = ACC_GPS
             radius_m = ACC_GPS
             location_text = f"{lat}, {lon}"
 
-            # Snap away from road center / private areas (prefer footways)
-            _slat, _slon, _snote = snap_to_public_way(float(lat), float(lon), cfg["user_agent"])
+            # Snap away from road center / private areas (prefer footways),
+            # but NEVER accept a big move (keeps coords truth).
+            orig_lat, orig_lon = lat, lon
+            _slat, _slon, _snote = snap_to_public_way(orig_lat, orig_lon, cfg["user_agent"])
             if _snote:
-                lat, lon = _slat, _slon
-                snap_note = _snote
-                geocode_method = f"{geocode_method}+{_snote}"
+                SNAP_MAX_M = float(cfg.get("snap_max_m", 50.0))
+                dist_m = haversine_m(orig_lat, orig_lon, float(_slat), float(_slon))
+                if dist_m <= SNAP_MAX_M:
+                    lat, lon = float(_slat), float(_slon)
+                    snap_note = _snote
+                    geocode_method = f"{geocode_method}+{_snote}"
+                else:
+                    # reject snap -> keep original coords
+                    snap_note = f"{_snote}+rejected:{int(dist_m)}m"
         else:
             location_text = q or ""
             q_norm = normalize_query(q or "")
@@ -3113,6 +3125,7 @@ def main_once():
             props = (f or {}).get("properties") or {}
             props.pop("last_verify_ts", None)
             props.pop("last_context_ts", None)
+        normalize_reports_geojson(reports)
         save_json(REPORTS_PATH, reports)
         # ensure trailing newline
         try:
@@ -3190,6 +3203,27 @@ def main():
         time.sleep(float(sleep_s))
 
 
+def normalize_reports_geojson(reports: dict) -> None:
+    """Hard safety: ensure properties.lat/lon exist and match geometry (GeoJSON is [lon,lat])."""
+    feats = (reports or {}).get("features") or []
+    for f in feats:
+        if not isinstance(f, dict):
+            continue
+        g = f.get("geometry") or {}
+        coords = g.get("coordinates")
+        if not (isinstance(coords, (list, tuple)) and len(coords) == 2):
+            continue
+        try:
+            lon = float(coords[0]); lat = float(coords[1])
+        except Exception:
+            continue
+        p = f.get("properties") or {}
+        if p.get("lat") is None or p.get("lon") is None:
+            p["lat"] = lat
+            p["lon"] = lon
+            f["properties"] = p
+
+
 if __name__ == "__main__":
     import sys
 
@@ -3230,6 +3264,7 @@ if __name__ == "__main__":
         reports = load_json(REPORTS_PATH, {"type": "FeatureCollection", "features": []})
         updated = refresh_types_features(cfg, reports, limit=limit)
         if updated:
+            normalize_reports_geojson(reports)
             save_json(REPORTS_PATH, reports)
         raise SystemExit(0)
 
