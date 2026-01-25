@@ -1,9 +1,15 @@
-# Security model
+# Security
 
-## Secrets
-- Tokens live only in `secrets/secrets.json` (gitignored).
-- Never commit tokens, DM texts, trusted/blacklist lists, or runtime state.
+## Strict rule
+Security-sensitive details must never be published (GitHub, README, docs, public posts).
 
-## Manager DMs
-- Update text is private: `secrets/manager_update_message.txt`
-- State: `secrets/manager_update_state.json` (prevents resends)
+## What is considered sensitive
+- access tokens / secrets
+- any content inside `secrets/`
+- internal admin workflows
+- internal moderation/manager tooling details
+- rate-limit / anti-abuse internals that can be weaponized
+
+## Design approach (high level)
+- secrets are stored locally and excluded from version control
+- public repository contains only code + public dataset + public documentation
