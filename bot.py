@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 import ssl
 import certifi
 import os
@@ -833,26 +833,22 @@ def _wiki_summary(lang: str, title: str, user_agent: str) -> str:
 
 def maybe_idle_enrich_entities(cfg: dict) -> None:
     """
-    Idle background task (EN-only):
+    Idle background task (EN-only, deterministic):
     - Find ONE entity with empty desc in entities.json
-    - Fetch a short EN description from Wikidata (cached into entities.json)
-    - Uses curl to avoid Python SSL trust-store issues on macOS.
-    Safe: never blocks main work; runs only when idle; writes only entities.json.
+    - Resolve Wikidata QID via Wikipedia title (wiki_en preferred, else wiki_de)
+    - Fetch Wikidata EN description for that QID
+    - Cache into entities.json (qid + desc)
+    Uses curl to avoid Python SSL trust-store issues on macOS.
     """
     try:
         import json, subprocess, urllib.parse
-        from pathlib import Path
 
         if not bool(cfg.get("idle_entity_enrich", True)):
             return
 
-        # rate limit (seconds)
         every_s = int(cfg.get("idle_entity_enrich_every_s", 600) or 600)
-
-        # persistent throttle file (local)
         throttle_path = ROOT / ".idle_entity_enrich_last.txt"
         now = time.time()
-        last = 0.0
         try:
             last = float(throttle_path.read_text(encoding="utf-8").strip() or "0")
         except Exception:
@@ -868,25 +864,19 @@ def maybe_idle_enrich_entities(cfg: dict) -> None:
         if not isinstance(ent, dict) or not ent:
             return
 
-        # pick first missing desc
         pick_key = ""
-        pick_term = ""
+        pick = None
         for k, v in ent.items():
             if not isinstance(v, dict):
                 continue
-            desc = str(v.get("desc") or "").strip()
-            if desc:
+            if str(v.get("desc") or "").strip():
                 continue
             pick_key = str(k or "").strip().lower()
-            disp = str(v.get("display") or "").strip()
-            aliases = v.get("aliases") or []
-            a0 = str(aliases[0]).strip() if isinstance(aliases, list) and aliases else ""
-            pick_term = disp or a0 or pick_key
+            pick = v
             break
 
-        if not pick_key:
-            # nothing to do
-            throttle_path.write_text(str(now), encoding="utf-8")
+        throttle_path.write_text(str(now), encoding="utf-8")
+        if not pick_key or not isinstance(pick, dict):
             return
 
         def _curl_json(url: str, timeout_s: int = 15) -> dict:
@@ -899,31 +889,53 @@ def maybe_idle_enrich_entities(cfg: dict) -> None:
             except Exception:
                 return {}
 
-        def _wikidata_desc_en(term: str) -> str:
-            q = urllib.parse.quote(term)
-            url = (
-                "https://www.wikidata.org/w/api.php"
-                f"?action=wbsearchentities&search={q}&language=en&format=json&limit=1"
-            )
+        def _qid_from_wikipedia(wiki_lang: str, title: str) -> str:
+            q = urllib.parse.quote(title)
+            url = f"https://{wiki_lang}.wikipedia.org/w/api.php?action=query&format=json&prop=pageprops&ppprop=wikibase_item&titles={q}"
             data = _curl_json(url, timeout_s=15)
-            hits = (data or {}).get("search") or []
-            if not hits:
-                return ""
-            d = (hits[0].get("description") or "").strip()
-            if len(d) > 240:
-                d = d[:237].rstrip() + "…"
-            return d
+            pages = ((data or {}).get("query") or {}).get("pages") or {}
+            for _pid, pg in pages.items():
+                pp = (pg or {}).get("pageprops") or {}
+                qid = (pp.get("wikibase_item") or "").strip()
+                if qid.startswith("Q"):
+                    return qid
+            return ""
 
-        desc = _wikidata_desc_en(pick_term) or (_wikidata_desc_en(pick_key) if pick_term != pick_key else "")
+        def _en_desc_from_qid(qid: str) -> str:
+            url = f"https://www.wikidata.org/wiki/Special:EntityData/{qid}.json"
+            data = _curl_json(url, timeout_s=15)
+            e = ((data or {}).get("entities") or {}).get(qid) or {}
+            desc = (((e.get("descriptions") or {}).get("en") or {}).get("value") or "").strip()
+            if len(desc) > 240:
+                desc = desc[:237].rstrip() + "…"
+            return desc
+
+        qid = str(pick.get("qid") or "").strip()
+
+        if not qid:
+            title = str(pick.get("wiki_en") or "").strip()
+            lang = "en"
+            if not title:
+                title = str(pick.get("wiki_de") or "").strip()
+                lang = "de"
+            if not title:
+                log_line(f"idle_enrich SKIP key={pick_key} reason=no_wiki_title")
+                return
+            qid = _qid_from_wikipedia(lang, title)
+            if not qid:
+                log_line(f"idle_enrich SKIP key={pick_key} reason=no_qid_from_{lang}wiki")
+                return
+
+        desc = _en_desc_from_qid(qid)
         if not desc:
-            log_line(f"idle_enrich SKIP key={pick_key} term={pick_term!r} reason=no_wikidata_desc")
-            throttle_path.write_text(str(now), encoding="utf-8")
+            log_line(f"idle_enrich SKIP key={pick_key} qid={qid} reason=no_en_desc")
             return
 
-        ent[pick_key]["desc"] = desc
+        pick["qid"] = qid
+        pick["desc"] = desc
+        ent[pick_key] = pick
         p.write_text(json.dumps(ent, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        throttle_path.write_text(str(now), encoding="utf-8")
-        log_line(f"idle_enrich OK key={pick_key} desc_len={len(desc)} source=wikidata")
+        log_line(f"idle_enrich OK key={pick_key} qid={qid} desc_len={len(desc)} source=wikidata_via_wikipedia")
     except Exception as e:
         try:
             log_line(f"idle_enrich ERROR err={e!r}")

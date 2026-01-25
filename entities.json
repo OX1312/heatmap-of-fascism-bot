@@ -1,7 +1,7 @@
 {
   "auf1": {
     "display": "AUF1",
-    "desc": "protein-coding gene in the species Homo sapiens",
+    "desc": "Austrian far-right media platform",
     "aliases": [
       "AUF1",
       "Auf1",
@@ -9,17 +9,19 @@
       "auf-1",
       "AUF-1"
     ],
-    "wiki_de": "AUF1"
+    "wiki_de": "AUF1",
+    "qid": "Q115816343"
   },
   "nius": {
     "display": "NiUS",
-    "desc": "French songwriter, record producer",
+    "desc": "German right-wing populist news platform",
     "aliases": [
       "NIUS",
       "Nius",
       "NiUS",
       "nius"
     ],
-    "wiki_de": "Nius"
+    "wiki_de": "Nius",
+    "qid": "Q120979051"
   }
 }
