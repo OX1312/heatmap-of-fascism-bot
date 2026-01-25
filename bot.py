@@ -668,6 +668,20 @@ out tags geom;
 # LOCATION PARSE
 # =========================
 
+def maybe_snap_to_public_way(lat: float, lon: float, cfg: dict, geocode_method: str) -> tuple[float, float, str, str]:
+    """Snap-to-public-way with hard max-distance guard (default 50m). Returns (lat, lon, geocode_method, snap_note)."""
+    orig_lat, orig_lon = float(lat), float(lon)
+    _slat, _slon, _snote = snap_to_public_way(orig_lat, orig_lon, cfg["user_agent"])
+    if not _snote:
+        return orig_lat, orig_lon, geocode_method, ""
+    SNAP_MAX_M = float(cfg.get("snap_max_m", 50.0))
+    dist_m = haversine_m(orig_lat, orig_lon, float(_slat), float(_slon))
+    if dist_m <= SNAP_MAX_M:
+        return float(_slat), float(_slon), f"{geocode_method}+{_snote}", _snote
+    # reject snap -> keep original coords, keep method (no silent wrong pins)
+    return orig_lat, orig_lon, geocode_method, f"{_snote}+rejected:{int(dist_m)}m"
+
+
 def heuristic_fix_crossing(query: str) -> str:
     q = (query or "").strip()
     if not q:
@@ -2822,12 +2836,8 @@ def main_once():
                 accuracy_m = int(cache[q].get("accuracy_m", ACC_DEFAULT))
                 radius_m = int(cache[q].get("radius_m", accuracy_m))
 
-                # Snap away from road center / private areas (prefer footways)
-                _slat, _slon, _snote = snap_to_public_way(float(lat), float(lon), cfg["user_agent"])
-                if _snote:
-                    lat, lon = _slat, _slon
-                    snap_note = _snote
-                    geocode_method = f"{geocode_method}+{_snote}"
+                # Snap away from road center / private areas (prefer footways) with guard
+                lat, lon, geocode_method, snap_note = maybe_snap_to_public_way(float(lat), float(lon), cfg, geocode_method)
             else:
                 coords2, method = geocode_query_worldwide(q, cfg["user_agent"])
                 if not coords2:
@@ -2872,12 +2882,8 @@ def main_once():
                 lat, lon = coords2
                 geocode_method = method
 
-                # Snap away from road center / private areas (prefer footways)
-                _slat, _slon, _snote = snap_to_public_way(float(lat), float(lon), cfg["user_agent"])
-                if _snote:
-                    lat, lon = _slat, _slon
-                    snap_note = _snote
-                    geocode_method = f"{geocode_method}+{_snote}"
+                # Snap away from road center / private areas (prefer footways) with guard
+                lat, lon, geocode_method, snap_note = maybe_snap_to_public_way(float(lat), float(lon), cfg, geocode_method)
 
                 if method == "overpass_node":
                     accuracy_m = ACC_NODE
