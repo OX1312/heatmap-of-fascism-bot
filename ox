@@ -95,6 +95,24 @@ PY
     echo "plist=$PLIST"
     plutil -p "$PLIST" | sed -n '1,120p' | grep -E "WorkingDirectory|ProgramArguments" -n -A3 || true
     ;;
+  online)
+    cd "$REPO" || exit 1
+    echo "— config:"
+    python3 - <<'PY2'
+import json
+from pathlib import Path
+cfg = json.loads(Path("config.json").read_text(encoding="utf-8"))
+keys = ["test_mode","auto_push_reports","user_agent"]
+for k in keys:
+    print(f"{k}={cfg.get(k)}")
+PY2
+    echo "— launchd (last RUN/START/ERROR):"
+    tail -n 200 bot.launchd.log 2>/dev/null | egrep "START| RUN |ERROR" | tail -n 5 || true
+    echo "— normal log (tail):"
+    d=$(TZ=Europe/Berlin date +%F)
+    tail -n 30 "logs/normal-$d.log" 2>/dev/null || tail -n 30 "normal-$d.log" 2>/dev/null || echo "(no normal log found)"
+    ;;
+
   *)
     echo "unknown command: $cmd"
     help_msg
