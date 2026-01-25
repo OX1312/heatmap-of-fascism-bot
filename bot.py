@@ -2863,6 +2863,77 @@ def main_once():
             radius_m = ACC_GPS
             location_text = f"{lat}, {lon}"
 
+            # Conflict check: if coords + a plausible address/crossing are both present, verify they match.
+            # We DO NOT overwrite coords. We only block publish if mismatch is large.
+            q_conf = None
+            try:
+                _lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+                # drop hashtag lines
+                _lines = [ln for ln in _lines if not ln.lstrip().startswith("#")]
+                # drop decimal coord lines (keep only potential address/crossing lines)
+                _lines = [ln for ln in _lines if not RE_COORDS.search(ln)]
+                _t2 = "\n".join(_lines)
+                _c2, q_conf = parse_location(_t2)
+            except Exception:
+                q_conf = None
+
+            if q_conf:
+                qn = heuristic_fix_crossing(str(q_conf))
+                qn_norm = normalize_query(qn)
+                coords_q = None
+                method_q = "none"
+
+                if qn in cache and "lat" in cache[qn] and "lon" in cache[qn]:
+                    coords_q = (float(cache[qn]["lat"]), float(cache[qn]["lon"]))
+                    method_q = str(cache[qn].get("method", "cache"))
+                else:
+                    coords_q, method_q = geocode_query_worldwide(qn, cfg["user_agent"])
+                    if not coords_q:
+                        coords_q, method_q = geocode_query_worldwide(qn_norm, cfg["user_agent"])
+                    time.sleep(DELAY_NOMINATIM)
+
+                if coords_q:
+                    dist_m = haversine_m(float(lat), float(lon), float(coords_q[0]), float(coords_q[1]))
+                    conflict_m = float(cfg.get("loc_conflict_m", 150.0))
+                    if dist_m > conflict_m:
+                        _sid = str(status_id)
+                        needs_item = {
+                            "id": item_id,
+                            "status_id": _sid,
+                            "status": "NEEDS_INFO",
+                            "event": event,
+                            "tag": tag,
+                            "source": url,
+                            "created_at": st.get("created_at"),
+                            "created_date": created_date,
+                            "lat": 0.0,
+                            "lon": 0.0,
+                            "accuracy_m": int(ACC_FALLBACK),
+                            "radius_m": int(ACC_FALLBACK),
+                            "geocode_method": "location_conflict",
+                            "location_text": str(qn).strip(),
+                            "sticker_type": sticker_type,
+                            "removed_at": iso_date_from_created_at(st.get("created_at")) if event == "removed" else None,
+                            "media": media_urls,
+                            "error": "location_conflict",
+                            "replied": [],
+                        }
+                        msg = (
+                            "🤖 ⚠️ Location mismatch\n\n"
+                            "Your coordinates and your address/crossing do not match.\n"
+                            f"Distance ≈ {int(dist_m)} m.\n\n"
+                            "Please reply with ONE correct location:\n"
+                            "• Coordinates (lat, lon) OR\n"
+                            "• Street+city / Crossing+city\n\n"
+                            "FCK RACISM. ✊ ALERTA ALERTA."
+                        )
+                        if reply_once(cfg, cache, f"loc_conflict:{_sid}", _sid, msg):
+                            needs_item["replied"].append("location_conflict")
+                        pending.append(needs_item)
+                        pending_by_source[url] = needs_item
+                        added_pending += 1
+                        continue
+
             # Snap away from road center / private areas (prefer footways),
             # but NEVER accept a big move (keeps coords truth).
             orig_lat, orig_lon = lat, lon
