@@ -1,6 +1,6 @@
 {
   "instance_url": "https://mastodon.social",
-  "user_agent": "HeatmapOfFascismBot/0.2.0",
+  "user_agent": "HeatmapOfFascismBot/0.2.4",
   "hashtags": {
     "sticker_report": "present",
     "graffiti_report": "present"

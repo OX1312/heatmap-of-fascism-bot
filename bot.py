@@ -33,8 +33,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.0"
-
+__version__ = "0.2.4"
 import ssl
 import certifi
 import os
@@ -60,13 +59,21 @@ from zoneinfo import ZoneInfo as _ZoneInfo
 from pathlib import Path
 
 _print = _builtins.print
+try:
+    import signal as _signal
+    _signal.signal(_signal.SIGPIPE, _signal.SIG_DFL)
+except Exception:
+    pass
 _LOG_TZ = _ZoneInfo("Europe/Berlin")
 _LOG_ROOT = pathlib.Path(__file__).resolve().parent
+LOG_DIR = _LOG_ROOT / "logs"
+ERRORS_DIR = _LOG_ROOT / "errors"
 _LOG_DATE = datetime.now(_LOG_TZ).strftime("%Y-%m-%d")
 
-NORMAL_LOG_PATH = _LOG_ROOT / f"normal-{_LOG_DATE}.log"
-EVENT_LOG_PATH  = _LOG_ROOT / f"event-{_LOG_DATE}.log"
-EVENT_STATE_PATH = _LOG_ROOT / "event_state.json"
+NORMAL_LOG_PATH = LOG_DIR / f"normal-{_LOG_DATE}.log"
+EVENT_LOG_PATH  = LOG_DIR / f"event-{_LOG_DATE}.log"
+EVENT_STATE_PATH = LOG_DIR / "event_state.json"
+ERROR_LOG_PATH = ERRORS_DIR / f"errors-{_LOG_DATE}.log"
 
 # --- RETENTION ---
 RETENTION_DAYS = 14
@@ -89,7 +96,7 @@ def _prune_old_logs(root: pathlib.Path, days: int = RETENTION_DAYS) -> None:
     except Exception:
         pass
 
-_prune_old_logs(_LOG_ROOT)
+_prune_old_logs(LOG_DIR)
 # --- /RETENTION ---
 
 _LOG_LOCK = _threading.Lock()
@@ -217,10 +224,22 @@ def print(*args, **kwargs):
 # =========================
 ROOT = pathlib.Path(__file__).resolve().parent
 CFG_PATH = ROOT / "config.json"
-SECRETS_PATH = ROOT / "secrets.json"
-TRUSTED_PATH = ROOT / "trusted_accounts.json"
+
+# Professional structure
+SECRETS_DIR = ROOT / "secrets"
+SECRETS_PATH = SECRETS_DIR / "secrets.json"
+TRUSTED_PATH = SECRETS_DIR / "trusted_accounts.json"
+BLACKLIST_PATH = SECRETS_DIR / "blacklist_accounts.json"
+MANAGER_DM_STATE_PATH = SECRETS_DIR / "manager_dm_state.json"
+MANAGER_UPDATE_STATE_PATH = SECRETS_DIR / "manager_update_state.json"
+
+SUPPORT_DIR = ROOT / "support"
+SUPPORT_REQUESTS_PATH = SUPPORT_DIR / "support_requests.json"
+SUPPORT_STATE_PATH = SUPPORT_DIR / "support_state.json"
+
 CACHE_PATH = ROOT / "cache_geocode.json"
 PENDING_PATH = ROOT / "pending.json"
+TIMELINE_STATE_PATH = ROOT / "timeline_state.json"
 REPORTS_PATH = ROOT / "reports.geojson"
 
 # =========================
@@ -232,6 +251,7 @@ RE_STREET_CITY = re.compile(r"^(.+?)\s*,\s*(.+)$")  # "Street, City"
 RE_CROSS = re.compile(r"^(.+?)\s*(?:/| x | & )\s*(.+?)\s*,\s*(.+)$", re.IGNORECASE)  # "A / B, City"
 RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(.+?)\s*$", re.IGNORECASE)
 RE_STICKER_TYPE = re.compile(r"(?im)^\s*#sticker_type\s*:?\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
+RE_NOTE = re.compile(r"(?is)(?:^|\s)#note\s*:\s*(.+?)(?=(?:\s#[\w_]+)|$)")
 
 # =========================
 # ENDPOINTS / POLITENESS
@@ -368,6 +388,13 @@ def parse_sticker_type(text: str) -> str:
         return "unknown"
     t = m.group(1).strip()
     return t if t else "unknown"
+
+def parse_note(text: str) -> str:
+    m = RE_NOTE.search(text or "")
+    if not m:
+        return ""
+    t = (m.group(1) or "").strip()
+    return t[:500]
 
 def norm_type(s: str) -> str:
     s = (s or "unknown").strip().lower()
@@ -895,14 +922,434 @@ def geocode_query_worldwide(query: str, user_agent: str) -> Tuple[Optional[Tuple
 # =========================
 # MASTODON API
 # =========================
-def get_hashtag_timeline(cfg: Dict[str, Any], tag: str) -> List[Dict[str, Any]]:
+
+def _acct_base(a: str) -> str:
+    """Normalize acct/username to local part (no domain), lowercased."""
+    a = (a or "").strip().lstrip("@")
+    a = a.split("@")[0].strip().lower()
+    return a
+
+def _api_headers(cfg: Dict[str, Any]) -> Dict[str, str]:
+    return {"Authorization": f"Bearer {cfg['access_token']}"}
+
+def _api_get(cfg: Dict[str, Any], url: str, params: Dict[str, Any] | None = None) -> requests.Response:
+    r = requests.get(url, headers=_api_headers(cfg), params=params, timeout=MASTODON_TIMEOUT_S)
+    r.raise_for_status()
+    return r
+
+def _api_post(cfg: Dict[str, Any], url: str, data: Dict[str, Any]) -> requests.Response:
+    r = requests.post(url, headers=_api_headers(cfg), data=data, timeout=MASTODON_TIMEOUT_S)
+    r.raise_for_status()
+    return r
+
+def get_verify_credentials(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/accounts/verify_credentials"
+    r = _api_get(cfg, url)
+    return r.json()
+
+def _paginate_accounts(cfg: Dict[str, Any], first_url: str, params: Dict[str, Any] | None = None, max_pages: int = 50) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    url = first_url
+    p = dict(params or {})
+    for _ in range(int(max_pages)):
+        r = _api_get(cfg, url, params=p if url == first_url else None)
+        data = r.json()
+        if isinstance(data, list):
+            out.extend([x for x in data if isinstance(x, dict)])
+        # Mastodon pagination via Link header
+        nxt = None
+        try:
+            nxt = (r.links or {}).get("next", {}).get("url")
+        except Exception:
+            nxt = None
+        if not nxt:
+            break
+        url = nxt
+        p = None
+        time.sleep(0.15)
+    return out
+
+def get_following_set(cfg: Dict[str, Any], my_id: str) -> set:
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/accounts/{my_id}/following"
+    accs = _paginate_accounts(cfg, url, params={"limit": 80}, max_pages=int(cfg.get("sync_max_pages", 50) or 50))
+    return set(_acct_base((a.get("acct") or a.get("username") or "")) for a in accs if (a.get("acct") or a.get("username")))
+
+def get_blocked_set(cfg: Dict[str, Any]) -> set:
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/blocks"
+    accs = _paginate_accounts(cfg, url, params={"limit": 80}, max_pages=int(cfg.get("sync_max_pages", 50) or 50))
+    return set(_acct_base((a.get("acct") or a.get("username") or "")) for a in accs if (a.get("acct") or a.get("username")))
+
+def load_blacklist_set() -> set:
+    legacy = ROOT / "blacklist_accounts.json"
+    data = load_json(BLACKLIST_PATH, None)
+    if data is None:
+        data = load_json(legacy, [])
+    out = set()
+    if isinstance(data, list):
+        for a in data:
+            if isinstance(a, str):
+                out.add(_acct_base(a))
+    out.discard("")
+    return out
+
+def _write_list_if_changed(path: Path, new_list: List[str]) -> bool:
+    try:
+        old = load_json(path, None)
+        old_list = old if isinstance(old, list) else None
+        if old_list == new_list:
+            return False
+    except Exception:
+        pass
+    save_json(path, new_list)
+    return True
+
+def send_direct_message(cfg: Dict[str, Any], to_user: str, body: str) -> bool:
+    """Send a DM (visibility=direct) to @to_user. Returns True on success."""
+    try:
+        instance = cfg["instance_url"].rstrip("/")
+        url = f"{instance}/api/v1/statuses"
+        u = _acct_base(to_user)
+        if not u:
+            return False
+        txt = body.strip()
+        if not txt.startswith("@"):
+            txt = f"@{u} " + txt
+        data = {"status": txt, "visibility": "direct"}
+        _api_post(cfg, url, data)
+        return True
+    except Exception as e:
+        try:
+            _append(ERROR_LOG_PATH, f"{_now_iso()} dm ERROR to={to_user} err={e!r}")
+        except Exception:
+            pass
+        return False
+
+
+def get_conversations(cfg: Dict[str, Any], limit: int = 40) -> List[Dict[str, Any]]:
+    """Fetch DM conversations (threads containing 'direct' visibility posts)."""
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/conversations"
+    r = _api_get(cfg, url, params={"limit": int(limit)})
+    data = r.json()
+    return data if isinstance(data, list) else []
+
+def _ensure_support_files():
+    SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+    if not SUPPORT_REQUESTS_PATH.exists():
+        save_json(SUPPORT_REQUESTS_PATH, [])
+    if not SUPPORT_STATE_PATH.exists():
+        save_json(SUPPORT_STATE_PATH, {"seen_status_ids": []})
+
+def ingest_support_requests(cfg: Dict[str, Any], managers_set: set) -> int:
+    """
+    Collect manager support DMs:
+      - DM to @HeatmapofFascism
+      - contains hashtag #support_anfrage
+      - sender must be a manager (account we follow)
+    Writes to: support/support_requests.json (append, dedup by status_id)
+    """
+    try:
+        _ensure_support_files()
+        st = load_json(SUPPORT_STATE_PATH, {"seen_status_ids": []}) or {"seen_status_ids": []}
+        seen = set(str(x) for x in (st.get("seen_status_ids") or []))
+
+        reqs = load_json(SUPPORT_REQUESTS_PATH, []) or []
+        if not isinstance(reqs, list):
+            reqs = []
+
+        added = 0
+        convs = get_conversations(cfg, limit=int(cfg.get("support_poll_limit", 40) or 40))
+        for c in convs:
+            last = (c or {}).get("last_status") or {}
+            sid = str(last.get("id") or "").strip()
+            if not sid or sid in seen:
+                continue
+
+            acc = (last.get("account") or {}) if isinstance(last.get("account"), dict) else {}
+            sender = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
+            if not sender or sender not in (managers_set or set()):
+                seen.add(sid)
+                continue
+
+            txt = strip_html(last.get("content", "") or "")
+            if "#support_anfrage" not in txt.lower():
+                # not a support request, but mark seen to avoid reprocessing
+                seen.add(sid)
+                continue
+
+            reqs.append({
+                "status_id": sid,
+                "created_at": last.get("created_at"),
+                "sender": sender,
+                "url": last.get("url"),
+                "text": txt.strip(),
+            })
+            added += 1
+            seen.add(sid)
+
+        if added:
+            save_json(SUPPORT_REQUESTS_PATH, reqs)
+        st["seen_status_ids"] = sorted(seen)
+        save_json(SUPPORT_STATE_PATH, st)
+        return int(added)
+    except Exception as e:
+        try:
+            _append(ERROR_LOG_PATH, f"{_now_iso()} support_ingest ERROR err={e!r}")
+        except Exception:
+            pass
+        return 0
+def build_manager_welcome_text(admin_handle: str = "@buntepanther") -> str:
+    return (
+        "🤖 🚀 Welcome — you’re now a Heatmap of Fascism Manager.\n\n"
+        "You can approve reports for the public map:\n"
+        "⭐ Favourite a report post to publish it.\n\n"
+        "Rules (short):\n"
+        "• Post must mention @HeatmapofFascism\n"
+        "• Location required: lat, lon OR Street, City\n"
+        "• Optional: #sticker_type: party/symbol/slogan\n"
+        "• Optional: #sticker_removed (marks removed)\n"
+        "• Optional: #sticker_seen (updates last confirmed)\n\n"
+        f"Support: write a private message to @HeatmapofFascism with #support_anfrage.\n\nSupport/Admin: {admin_handle}\n"
+        "FCK RACISM. ✊ ALERTA ALERTA."
+    )
+
+def build_manager_update_text(version: str, admin_handle: str = "@buntepanther", msg: str | None = None) -> str:
+    base = (msg or "").strip()
+    if not base:
+        base = f"Update: bot is now v{version}."
+    return (
+        f"🤖 🚀 Heatmap of Fascism Update\n\n{base}\n\n"
+        f"Support: write a private message to @HeatmapofFascism with #support_anfrage.\n\nSupport/Admin: {admin_handle}\n"
+        "FCK RACISM. ✊ ALERTA ALERTA."
+    )
+
+def sync_managers_and_blacklist(cfg: Dict[str, Any]) -> tuple[set, set]:
+    """
+    Sync policy:
+      - trusted (managers) = accounts this bot follows
+      - blacklist = accounts this bot blocks
+    Side effects:
+      - write secrets/trusted_accounts.json + secrets/blacklist_accounts.json (only if changed)
+      - DM welcome to newly-followed managers (once)
+      - DM version updates to managers (once per version)
+    """
+    # ensure dirs exist
+    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    (ROOT / "logs").mkdir(parents=True, exist_ok=True)
+    (ROOT / "errors").mkdir(parents=True, exist_ok=True)
+
+    admin_handle = str(cfg.get("admin_handle") or "@buntepanther").strip() or "@buntepanther"
+    do_welcome = bool(cfg.get("dm_welcome_managers", True))
+    do_updates = bool(cfg.get("dm_manager_updates", True))
+    # Only announce updates when there is a user-facing changelog message.
+    # If manager_update_message is missing/empty -> no update DM.
+    do_updates = bool(do_updates and str(cfg.get("manager_update_message") or "").strip())
+
+    me = get_verify_credentials(cfg)
+    my_id = str(me.get("id") or "").strip()
+    following = get_following_set(cfg, my_id) if my_id else set()
+    blocked = get_blocked_set(cfg)
+
+    # lists to write (sorted for stable diffs)
+    following_list = sorted([x for x in following if x])
+    blocked_list = sorted([x for x in blocked if x])
+
+    # detect new managers vs previous file (for welcome)
+    prev = load_json(TRUSTED_PATH, [])
+    prev_set = set(_acct_base(x) for x in prev) if isinstance(prev, list) else set()
+
+    _write_list_if_changed(TRUSTED_PATH, following_list)
+    _write_list_if_changed(BLACKLIST_PATH, blocked_list)
+
+    if do_welcome and following_list:
+        st = load_json(MANAGER_DM_STATE_PATH, {"welcomed": []}) or {"welcomed": []}
+        if not isinstance(st, dict):
+            st = {"welcomed": []}
+        welcomed = set(_acct_base(x) for x in (st.get("welcomed") or []))
+        welcome_txt = build_manager_welcome_text(admin_handle=admin_handle)
+
+        newly = sorted([u for u in following_list if u and u not in prev_set and u not in welcomed])
+        sent_any = False
+        for u in newly:
+            if send_direct_message(cfg, u, welcome_txt):
+                welcomed.add(u)
+                sent_any = True
+                time.sleep(0.25)
+        if sent_any:
+            st["welcomed"] = sorted([x for x in welcomed if x])
+            save_json(MANAGER_DM_STATE_PATH, st)
+
+    if do_updates and following_list:
+        up = load_json(MANAGER_UPDATE_STATE_PATH, {"last_announced": ""}) or {"last_announced": ""}
+        if not isinstance(up, dict):
+            up = {"last_announced": ""}
+        last = str(up.get("last_announced") or "").strip()
+        # Only notify managers if there is a real user-facing update message.
+        msg = str(cfg.get("manager_update_message") or "").strip()
+        if msg and last != str(__version__):
+            upd_txt = build_manager_update_text(str(__version__), admin_handle=admin_handle, msg=msg)
+            sent = 0
+            for u in following_list:
+                if send_direct_message(cfg, u, upd_txt):
+                    sent += 1
+                    time.sleep(0.25)
+            if sent:
+                up["last_announced"] = str(__version__)
+                save_json(MANAGER_UPDATE_STATE_PATH, up)
+
+            sent = 0
+            for u in following_list:
+                if send_direct_message(cfg, u, upd_txt):
+                    sent += 1
+                    time.sleep(0.25)
+            if sent:
+                up["last_announced"] = str(__version__)
+                save_json(MANAGER_UPDATE_STATE_PATH, up)
+
+    return set(following_list), set(blocked_list)
+
+
+def _has_hashtag(text: str, tag: str) -> bool:
+    t = (text or "").lower()
+    h = (tag or "").strip().lower()
+    if not h:
+        return False
+    if not h.startswith("#"):
+        h = "#" + h
+    return h in t
+
+def get_conversations(cfg: Dict[str, Any], limit: int = 40) -> List[Dict[str, Any]]:
+    """GET /api/v1/conversations (DM threads). Requires read:statuses."""
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/conversations"
+    try:
+        r = _api_get(cfg, url, params={"limit": int(limit)})
+        data = r.json()
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        try:
+            _append(ERROR_LOG_PATH, f"{_now_iso()} support_get_conversations ERROR err={e!r}")
+        except Exception:
+            pass
+        return []
+
+def mark_conversation_read(cfg: Dict[str, Any], conv_id: str) -> None:
+    """POST /api/v1/conversations/:id/read. Requires write:conversations."""
+    if not conv_id:
+        return
+    instance = cfg["instance_url"].rstrip("/")
+    url = f"{instance}/api/v1/conversations/{conv_id}/read"
+    try:
+        _api_post(cfg, url, data={})
+    except Exception as e:
+        try:
+            _append(ERROR_LOG_PATH, f"{_now_iso()} support_mark_read ERROR id={conv_id} err={e!r}")
+        except Exception:
+            pass
+
+def process_support_requests(cfg: Dict[str, Any], trusted_set: set) -> int:
+    """
+    Managers can DM the bot with #support_anfrage.
+    Stores requests in support/support_requests.json and marks the conversation as read.
+    Stable behavior:
+      - only unread conversations
+      - only if sender is in trusted_set
+      - dedupe by last_status.id
+      - if API scopes missing: skip + log error, bot continues
+    """
+    if not bool(cfg.get("support_enabled", True)):
+        return 0
+
+    SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_array_file(SUPPORT_REQUESTS_PATH)
+    ensure_object_file(SUPPORT_STATE_PATH)
+
+    tag = str(cfg.get("support_hashtag") or "support_anfrage").strip()
+    if tag.startswith("#"):
+        tag = tag[1:]
+
+    state = load_json(SUPPORT_STATE_PATH, {}) or {}
+    if not isinstance(state, dict):
+        state = {}
+    seen = set(str(x) for x in (state.get("seen_status_ids") or []))
+    if len(seen) > 500:
+        seen = set(list(seen)[-250:])
+
+    reqs = load_json(SUPPORT_REQUESTS_PATH, []) or []
+    if not isinstance(reqs, list):
+        reqs = []
+
+    added = 0
+    convs = get_conversations(cfg, limit=int(cfg.get("support_limit", 40) or 40))
+    for c in convs:
+        if not isinstance(c, dict):
+            continue
+        if not c.get("unread"):
+            continue
+        conv_id = str(c.get("id") or "").strip()
+        ls = c.get("last_status") or {}
+        if not isinstance(ls, dict):
+            continue
+        sid = str(ls.get("id") or "").strip()
+        if not sid or sid in seen:
+            continue
+
+        acc = (ls.get("account") or {}) if isinstance(ls.get("account"), dict) else {}
+        sender = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
+
+        if not sender or (sender not in set(trusted_set or [])):
+            continue
+
+        txt = strip_html(str(ls.get("content") or ""))
+        if not _has_hashtag(txt, tag):
+            continue
+
+        req = {
+            "ts": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "from": sender,
+            "conversation_id": conv_id,
+            "status_id": sid,
+            "text": txt.strip(),
+            "url": str(ls.get("url") or ""),
+        }
+        reqs.append(req)
+        seen.add(sid)
+        added += 1
+
+        mark_conversation_read(cfg, conv_id)
+        time.sleep(0.15)
+
+    if added:
+        save_json(SUPPORT_REQUESTS_PATH, reqs)
+        state["seen_status_ids"] = list(seen)[-500:]
+        save_json(SUPPORT_STATE_PATH, state)
+
+    return int(added)
+def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None = None, max_id: str | None = None, limit: int = 40) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
     tag = tag.lstrip("#")
     url = f"{instance}/api/v1/timelines/tag/{tag}"
     headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-    r = requests.get(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
+
+    params: Dict[str, Any] = {"limit": int(limit)}
+    if since_id:
+        params["since_id"] = str(since_id)
+    if max_id:
+        params["max_id"] = str(max_id)
+
+    r = requests.get(url, headers=headers, params=params, timeout=MASTODON_TIMEOUT_S)
+    # one compact line so we can grep it
+    print(f"hashtag_timeline tag={tag} http={r.status_code} since_id={since_id or '-'} max_id={max_id or '-'}")
     r.raise_for_status()
-    return r.json()
+    data = r.json()
+    try:
+        print(f"hashtag_timeline tag={tag} items={len(data)}")
+    except Exception:
+        pass
+    return data
 
 class StatusDeleted(Exception):
     pass
@@ -1561,13 +2008,6 @@ def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) ->
     print(f"fav_check status={status_id} favs={fav_norm} trusted={sorted(trusted_set)}")
     return any(x in trusted_set for x in fav_norm)
 
-    for acc in fav_accounts:
-        acct = (acc.get("acct") or "").split("@")[0].strip().lower()
-        username = (acc.get("username") or "").strip().lower()
-        if acct in trusted_set or username in trusted_set:
-            return True
-    return False
-
 # =========================
 # REPORTS (PRODUCT SCHEMA)
 # =========================
@@ -1634,6 +2074,7 @@ def make_product_feature(
     geocode_method: str,  # gps | nominatim | overpass_node | overpass_nearest | fallback
     location_text: str,
     media: List[str],
+    notes: str,
     removed_at: Optional[str],
 ) -> Dict[str, Any]:
     return {
@@ -1647,6 +2088,7 @@ def make_product_feature(
 
             "status": status,
             "sticker_type": sticker_type,
+            "notes": notes,
 
             "first_seen": created_date,
             "last_seen": created_date,
@@ -1660,7 +2102,7 @@ def make_product_feature(
 
             "location_text": location_text,
             "media": media,
-            "notes": ""
+            "notes": str(notes or "")
         }
     }
 
@@ -1726,7 +2168,58 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
     tags_map = normalized
 
     for tag, event in tags_map.items():
-        statuses = get_hashtag_timeline(cfg, tag)
+        # Cursor/backfill logic (timeline_state.json)
+        st_state = load_json(TIMELINE_STATE_PATH, {}) or {}
+        tag_key = str(tag).lstrip("#")
+
+        since_id = str(st_state.get(tag_key) or "").strip() or None
+
+        def backfill_pages(pages: int = 10, limit: int = 40):
+            out = []
+            seen = set()
+            max_id = None
+            for _ in range(int(pages)):
+                batch = get_hashtag_timeline(cfg, tag_key, max_id=max_id, limit=limit)
+                if not batch:
+                    break
+                for it in batch:
+                    _id = str(it.get("id") or "")
+                    if _id and _id not in seen:
+                        out.append(it)
+                        seen.add(_id)
+                # paginate older
+                max_id = str(batch[-1].get("id") or "")
+                if not max_id:
+                    break
+            return out
+
+        if since_id is None:
+            # first run / after reset: pull older existing posts too
+            statuses = backfill_pages(pages=int(cfg.get("timeline_backfill_pages", 10) or 10), limit=40)
+            # set since_id to newest id seen (so next runs are incremental)
+            newest = None
+            for it in statuses:
+                _id = str(it.get("id") or "")
+                if _id and (newest is None or int(_id) > int(newest)):
+                    newest = _id
+            if newest:
+                st_state[tag_key] = newest
+                save_json(TIMELINE_STATE_PATH, st_state)
+        else:
+            statuses = get_hashtag_timeline(cfg, tag_key, since_id=since_id, limit=40)
+            # update since_id to newest id in this batch
+            newest = None
+            for it in statuses:
+                _id = str(it.get("id") or "")
+                if _id and (newest is None or int(_id) > int(newest)):
+                    newest = _id
+            if newest:
+                st_state[tag_key] = newest
+                save_json(TIMELINE_STATE_PATH, st_state)
+
+        # Process oldest -> newest for stable behavior
+        statuses = sorted(statuses, key=lambda x: int(str(x.get("id") or "0")))
+
         for st in statuses:
             yield tag, event, st
         time.sleep(DELAY_TAG_FETCH)
@@ -1759,7 +2252,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
         state_path = Path(ROOT) / ".autopush_state.json"
 
         def load_state():
-            st = load_json(str(state_path), {}) or {}
+            st = load_json(state_path, {}) or {}
             if not isinstance(st, dict):
                 st = {}
             st.setdefault("last_push_ts", 0.0)
@@ -1770,7 +2263,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
 
         def save_state(st):
             try:
-                save_json(str(state_path), st)
+                save_json(state_path, st)
             except Exception:
                 pass
 
@@ -1863,6 +2356,9 @@ def main_once():
     ensure_object_file(CACHE_PATH)
     ensure_array_file(PENDING_PATH)
     ensure_reports_file()
+    SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_array_file(SUPPORT_REQUESTS_PATH)
+    ensure_object_file(SUPPORT_STATE_PATH)
 
     cfg = load_json(CFG_PATH, None)
     if not isinstance(cfg, dict):
@@ -1906,11 +2402,21 @@ def main_once():
     auto_git_push_reports(cfg, reason="startup_flush")
 
 
+    # secrets (new: secrets/secrets.json, legacy fallback: ./secrets.json)
+    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
     secrets = load_json(SECRETS_PATH, None)
+    if not secrets or not secrets.get("access_token"):
+        legacy = ROOT / "secrets.json"
+        secrets = load_json(legacy, None)
     if not secrets or not secrets.get("access_token"):
         raise SystemExit('Missing secrets.json (needs: {"access_token":"..."})')
 
     cfg["access_token"] = secrets["access_token"]
+    # auto-sync managers + blacklist (following/blocks)
+    managers_set, blacklist_set = sync_managers_and_blacklist(cfg)
+    added_support = ingest_support_requests(cfg, managers_set)
+    if added_support:
+        log_line(f"support_requests added={added_support} file={str(SUPPORT_REQUESTS_PATH)}")
 
     # Accuracy/radius defaults
     acc_cfg = cfg.get("accuracy") or {}
@@ -1922,6 +2428,11 @@ def main_once():
     ACC_FALLBACK = int(acc_cfg.get("fallback_m", 50))
 
     trusted_set = load_trusted_set(cfg)
+    blacklist_set = load_blacklist_set()
+    # Manager support inbox (DM): #support_anfrage
+    _support_added = process_support_requests(cfg, trusted_set)
+    if _support_added:
+        log_line(f"support_requests added={_support_added}")
 
     cache: Dict[str, Any] = load_json(CACHE_PATH, {})
     pending: List[Dict[str, Any]] = load_json(PENDING_PATH, [])
@@ -2003,6 +2514,13 @@ def main_once():
         if item_id in reports_ids:
             continue
         if url in pending_by_source:
+            continue
+
+        # reporter account (for blacklist / future policies)
+        acc = (st.get("account") or {}) if isinstance(st.get("account"), dict) else {}
+        reporter = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
+        if reporter and (reporter in blacklist_set):
+            # blocked is blocked: ignore silently (no processing)
             continue
 
         text = strip_html(st.get("content", ""))
@@ -2088,6 +2606,7 @@ def main_once():
 
         created_date = iso_date_from_created_at(st.get("created_at"))
         sticker_type = parse_sticker_type(text)
+        notes = parse_note(text)
 
         geocode_method = "gps"
         accuracy_m = ACC_DEFAULT
@@ -2318,6 +2837,7 @@ def main_once():
             geocode_method=str(item.get("geocode_method") or "nominatim"),
             location_text=str(item.get("location_text") or ""),
             media=list(item.get("media") or []),
+            notes=str(item.get("notes") or ""),
             removed_at=new_removed_at,
         )
 
@@ -2454,8 +2974,16 @@ def main():
         except Exception as e:
             # log exception + full traceback as separate log lines (grep-friendly)
             log_line(f"loop ERROR err={e!r}")
+            try:
+                _append(ERROR_LOG_PATH, f"{_now_iso()} loop ERROR err={e!r}")
+            except Exception:
+                pass
             for ln in traceback.format_exc().splitlines():
                 log_line(ln)
+                try:
+                    _append(ERROR_LOG_PATH, ln)
+                except Exception:
+                    pass
 
         # Define "activity"
         pending_left = int((stats or {}).get("pending_left", 0) or 0)
