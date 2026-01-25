@@ -1,0 +1,25 @@
+{
+  "auf1": {
+    "display": "AUF1",
+    "desc": "Right-wing media website (short neutral summary).",
+    "aliases": [
+      "AUF1",
+      "Auf1",
+      "auf 1",
+      "auf-1",
+      "AUF-1"
+    ],
+    "wiki_de": "AUF1"
+  },
+  "nius": {
+    "display": "NiUS",
+    "desc": "German online news portal (short neutral summary).",
+    "aliases": [
+      "NIUS",
+      "Nius",
+      "NiUS",
+      "nius"
+    ],
+    "wiki_de": "Nius"
+  }
+}

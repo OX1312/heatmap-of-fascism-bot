@@ -764,6 +764,53 @@ def heuristic_fix_crossing(query: str) -> str:
 
     return q
 
+# =========================
+# ENTITY / SOURCE NORMALIZE
+# =========================
+
+def normalize_entity_key(x: str) -> str:
+    """
+    Stable key for filtering/statistics.
+    Rules: lowercase, umlauts normalized, keep only [a-z0-9].
+    """
+    x = (str(x or "")).strip().lower()
+    x = (x.replace("ä","ae").replace("ö","oe").replace("ü","ue").replace("ß","ss"))
+    x = re.sub(r"[^a-z0-9]+", "", x)
+    return x
+
+def load_entities_dict() -> dict:
+    try:
+        from pathlib import Path
+        import json
+        p = Path("entities.json")
+        if not p.exists():
+            return {}
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def parse_entity(text: str) -> tuple[str, str]:
+    """
+    Accept:
+      #entity: X
+      #source: X
+      entity: X
+      source: X
+    Returns (raw, key) or ("","") if none.
+    """
+    import html as _html
+    t = _html.unescape(text or "")
+    for ln in t.splitlines():
+        line = ln.strip()
+        if not line:
+            continue
+        m = re.match(r"^\s*(?:#\s*)?(entity|source)\s*:\s*(.+?)\s*$", line, flags=re.IGNORECASE)
+        if m:
+            raw = m.group(2).strip()
+            key = normalize_entity_key(raw)
+            return raw, key
+    return "", ""
+
 def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
     """
     Returns:
@@ -2305,6 +2352,10 @@ def make_product_feature(
 
             "status": status,
             "sticker_type": sticker_type,
+            "entity_raw": entity_raw,
+            "entity_key": entity_key,
+            "entity_display": entity_display,
+            "entity_desc": entity_desc,
             "notes": notes,
 
             "first_seen": created_date,
@@ -2778,6 +2829,10 @@ def main_once():
                 "geocode_method": "none",
                 "location_text": "",
                 "sticker_type": parse_sticker_type(text),
+                "entity_raw": parse_entity(text)[0],
+                "entity_key": parse_entity(text)[1],
+                "entity_display": "",
+                "entity_desc": "",
                 "removed_at": None,
                 "media": media_urls,
                 "error": "missing_mention",
@@ -2827,6 +2882,10 @@ def main_once():
                 "geocode_method": "none",
                 "location_text": "",
                 "sticker_type": parse_sticker_type(text),
+                "entity_raw": parse_entity(text)[0],
+                "entity_key": parse_entity(text)[1],
+                "entity_display": "",
+                "entity_desc": "",
                 "removed_at": iso_date_from_created_at(st.get("created_at")) if event == "removed" else None,
                 "media": media_urls,
                 "error": "missing_location",
@@ -2845,6 +2904,14 @@ def main_once():
         sticker_type = parse_sticker_type(text)
         notes = parse_note(text)
 
+        entity_raw, entity_key = parse_entity(text)
+        entities = load_entities_dict()
+        ent = entities.get(entity_key) if entity_key else None
+        entity_display = ""
+        entity_desc = ""
+        if isinstance(ent, dict):
+            entity_display = str(ent.get("display") or "")
+            entity_desc = str(ent.get("desc") or "")
         geocode_method = "gps"
         accuracy_m = ACC_DEFAULT
         radius_m = ACC_DEFAULT
@@ -3332,6 +3399,7 @@ def main():
 
 
 def normalize_reports_geojson(reports: dict) -> None:
+    entities = load_entities_dict()
 
     def _ym_fields(d: str):
         # expects ISO date 'YYYY-MM-DD' (or empty)
@@ -3362,6 +3430,18 @@ def normalize_reports_geojson(reports: dict) -> None:
             continue
         p = f.get("properties") or {}
 
+
+        # entity fields (stable for filter/search)
+        ek = str(p.get("entity_key") or "").strip()
+        if ek and isinstance(entities, dict) and ek in entities:
+            ent = entities.get(ek) or {}
+            if not p.get("entity_display"):
+                p["entity_display"] = str(ent.get("display") or "")
+            if not p.get("entity_desc"):
+                p["entity_desc"] = str(ent.get("desc") or "")
+        else:
+            p.setdefault("entity_display","")
+            p.setdefault("entity_desc","")
         # Derived date fields for statistics (avoid duplicate truth)
         fs = p.get("first_seen") or ""
         ls = p.get("last_seen") or ""
