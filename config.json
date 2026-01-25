@@ -17,5 +17,8 @@
   "auto_push_remote": "origin",
   "auto_push_branch": "main",
   "test_mode": false,
-  "auto_mode": true
+  "auto_mode": true,
+  "dm_welcome_managers": true,
+  "dm_manager_updates": true,
+  "manager_update_message": ""
 }
