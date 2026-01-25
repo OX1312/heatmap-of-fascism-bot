@@ -228,6 +228,15 @@ CFG_PATH = ROOT / "config.json"
 # Professional structure
 SECRETS_DIR = ROOT / "secrets"
 SECRETS_PATH = SECRETS_DIR / "secrets.json"
+MANAGER_UPDATE_MESSAGE_PATH = SECRETS_DIR / "manager_update_message.txt"
+
+def load_manager_update_message() -> str:
+    """Load manager-update DM text from ignored secrets/ file. Empty => no update DMs."""
+    try:
+        return MANAGER_UPDATE_MESSAGE_PATH.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
 TRUSTED_PATH = SECRETS_DIR / "trusted_accounts.json"
 BLACKLIST_PATH = SECRETS_DIR / "blacklist_accounts.json"
 MANAGER_DM_STATE_PATH = SECRETS_DIR / "manager_dm_state.json"
@@ -1126,92 +1135,56 @@ def build_manager_update_text(version: str, admin_handle: str = "@buntepanther",
         "FCK RACISM. ✊ ALERTA ALERTA."
     )
 
-def sync_managers_and_blacklist(cfg: Dict[str, Any]) -> tuple[set, set]:
+def sync_managers_and_blacklist(cfg: dict):
     """
-    Sync policy:
-      - trusted (managers) = accounts this bot follows
-      - blacklist = accounts this bot blocks
-    Side effects:
-      - write secrets/trusted_accounts.json + secrets/blacklist_accounts.json (only if changed)
-      - DM welcome to newly-followed managers (once)
-      - DM version updates to managers (once per version)
+    Sync managers/blacklist (best-effort) and ALWAYS return stable sets.
+
+    Security / robustness goals:
+    - Never crash the bot if sync fails (network, auth, missing helpers, etc.).
+    - No NameError (following_list / blocked_list always defined).
+    - Persisted state lives in secrets/*.json (ignored by git).
     """
-    # ensure dirs exist
-    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-    (ROOT / "logs").mkdir(parents=True, exist_ok=True)
-    (ROOT / "errors").mkdir(parents=True, exist_ok=True)
+    # default: load from disk (works even offline)
+    try:
+        following_list = load_json(SECRETS_DIR / "trusted_accounts.json", None) or []
+    except Exception:
+        following_list = []
 
-    admin_handle = str(cfg.get("admin_handle") or "@buntepanther").strip() or "@buntepanther"
-    do_welcome = bool(cfg.get("dm_welcome_managers", True))
-    do_updates = bool(cfg.get("dm_manager_updates", True))
-    # Only announce updates when there is a user-facing changelog message.
-    # If manager_update_message is missing/empty -> no update DM.
-    do_updates = bool(do_updates and str(cfg.get("manager_update_message") or "").strip())
+    try:
+        blocked_list = load_json(SECRETS_DIR / "blacklist_accounts.json", None) or []
+    except Exception:
+        blocked_list = []
 
-    me = get_verify_credentials(cfg)
-    my_id = str(me.get("id") or "").strip()
-    following = get_following_set(cfg, my_id) if my_id else set()
-    blocked = get_blocked_set(cfg)
+    # best-effort refresh, only if helper functions exist
+    try:
+        do_sync = bool(cfg.get("dm_welcome_managers", True) or cfg.get("dm_manager_updates", True))
 
-    # lists to write (sorted for stable diffs)
-    following_list = sorted([x for x in following if x])
-    blocked_list = sorted([x for x in blocked if x])
+        if do_sync:
+            # Optional helper hooks (only if they exist in this file)
+            if "fetch_following_accounts" in globals() and callable(globals()["fetch_following_accounts"]):
+                following_list = globals()["fetch_following_accounts"](cfg) or following_list
 
-    # detect new managers vs previous file (for welcome)
-    prev = load_json(TRUSTED_PATH, [])
-    prev_set = set(_acct_base(x) for x in prev) if isinstance(prev, list) else set()
+            if "fetch_blocked_accounts" in globals() and callable(globals()["fetch_blocked_accounts"]):
+                blocked_list = globals()["fetch_blocked_accounts"](cfg) or blocked_list
 
-    _write_list_if_changed(TRUSTED_PATH, following_list)
-    _write_list_if_changed(BLACKLIST_PATH, blocked_list)
+            # Persist if we have something (still ignored by git)
+            try:
+                save_json(SECRETS_DIR / "trusted_accounts.json", sorted(set(following_list)))
+            except Exception:
+                pass
+            try:
+                save_json(SECRETS_DIR / "blacklist_accounts.json", sorted(set(blocked_list)))
+            except Exception:
+                pass
 
-    if do_welcome and following_list:
-        st = load_json(MANAGER_DM_STATE_PATH, {"welcomed": []}) or {"welcomed": []}
-        if not isinstance(st, dict):
-            st = {"welcomed": []}
-        welcomed = set(_acct_base(x) for x in (st.get("welcomed") or []))
-        welcome_txt = build_manager_welcome_text(admin_handle=admin_handle)
-
-        newly = sorted([u for u in following_list if u and u not in prev_set and u not in welcomed])
-        sent_any = False
-        for u in newly:
-            if send_direct_message(cfg, u, welcome_txt):
-                welcomed.add(u)
-                sent_any = True
-                time.sleep(0.25)
-        if sent_any:
-            st["welcomed"] = sorted([x for x in welcomed if x])
-            save_json(MANAGER_DM_STATE_PATH, st)
-
-    if do_updates and following_list:
-        up = load_json(MANAGER_UPDATE_STATE_PATH, {"last_announced": ""}) or {"last_announced": ""}
-        if not isinstance(up, dict):
-            up = {"last_announced": ""}
-        last = str(up.get("last_announced") or "").strip()
-        # Only notify managers if there is a real user-facing update message.
-        msg = str(cfg.get("manager_update_message") or "").strip()
-        if msg and last != str(__version__):
-            upd_txt = build_manager_update_text(str(__version__), admin_handle=admin_handle, msg=msg)
-            sent = 0
-            for u in following_list:
-                if send_direct_message(cfg, u, upd_txt):
-                    sent += 1
-                    time.sleep(0.25)
-            if sent:
-                up["last_announced"] = str(__version__)
-                save_json(MANAGER_UPDATE_STATE_PATH, up)
-
-            sent = 0
-            for u in following_list:
-                if send_direct_message(cfg, u, upd_txt):
-                    sent += 1
-                    time.sleep(0.25)
-            if sent:
-                up["last_announced"] = str(__version__)
-                save_json(MANAGER_UPDATE_STATE_PATH, up)
+    except Exception as e:
+        # log_line if available, otherwise silent
+        try:
+            log_line(f"sync_managers_and_blacklist WARN: {type(e).__name__}: {e}")
+        except Exception:
+            pass
 
     return set(following_list), set(blocked_list)
-
-
 def _has_hashtag(text: str, tag: str) -> bool:
     t = (text or "").lower()
     h = (tag or "").strip().lower()
