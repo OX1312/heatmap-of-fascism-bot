@@ -1135,6 +1135,84 @@ def build_manager_update_text(version: str, admin_handle: str = "@buntepanther",
         "FCK RACISM. ✊ ALERTA ALERTA."
     )
 
+
+# === MANAGER_UPDATE_DM_V1_START ===
+def maybe_send_manager_update_dms(cfg: Dict[str, Any], managers_set: set) -> int:
+    """
+    One-shot private manager update DM.
+    Security:
+      - logs counts only (no usernames/IDs)
+      - state in secrets/ (gitignored)
+      - dedup via msg_hash
+    """
+    try:
+        import hashlib
+        msg = load_manager_update_message()  # already .strip()
+        enabled = bool(cfg.get("dm_manager_updates", True))
+        admin = str(cfg.get("admin_handle") or "@buntepanther").strip() or "@buntepanther"
+
+        # Load previous state
+        st = load_json(MANAGER_UPDATE_STATE_PATH, {}) or {}
+        if not isinstance(st, dict):
+            st = {}
+
+        msg_hash = hashlib.sha256(msg.encode("utf-8")).hexdigest() if msg else ""
+        prev_hash = str(st.get("msg_hash") or "")
+        prev_sent = bool(st.get("sent") or 0)
+
+        # Always write a fresh state record (even skip) so we can verify execution
+        out = {
+            "ts": _now_iso(),
+            "enabled": enabled,
+            "managers_count": int(len(managers_set or set())),
+            "msg_len": int(len(msg)),
+            "msg_hash": msg_hash,
+            "sent": 0,
+            "skipped": None,
+        }
+
+        if not enabled:
+            out["skipped"] = "disabled"
+            save_json(MANAGER_UPDATE_STATE_PATH, out)
+            log_line(f"manager_update skip=disabled managers={out['managers_count']} msg_len={out['msg_len']}")
+            return 0
+
+        if not msg:
+            out["skipped"] = "empty_message"
+            save_json(MANAGER_UPDATE_STATE_PATH, out)
+            log_line(f"manager_update skip=empty_message managers={out['managers_count']} msg_len=0")
+            return 0
+
+        # Dedup: same message already sent
+        if prev_sent and prev_hash and prev_hash == msg_hash:
+            out["skipped"] = "dedup_same_message"
+            out["sent"] = int(st.get("sent") or 0)
+            save_json(MANAGER_UPDATE_STATE_PATH, out)
+            log_line(f"manager_update skip=dedup managers={out['managers_count']} msg_len={out['msg_len']}")
+            return 0
+
+        body = build_manager_update_text(version=__version__, admin_handle=admin, msg=msg)
+
+        sent = 0
+        for u in sorted(managers_set or set()):
+            ok = send_direct_message(cfg, u, body)
+            if ok:
+                sent += 1
+            time.sleep(0.25)
+
+        out["sent"] = int(sent)
+        save_json(MANAGER_UPDATE_STATE_PATH, out)
+        log_line(f"manager_update sent={sent} managers={out['managers_count']} msg_len={out['msg_len']}")
+        return int(sent)
+
+    except Exception as e:
+        try:
+            _append(ERROR_LOG_PATH, f"{_now_iso()} manager_update ERROR err={e!r}")
+        except Exception:
+            pass
+        return 0
+# === MANAGER_UPDATE_DM_V1_END ===
+
 def sync_managers_and_blacklist(cfg: dict):
     """
     Sync managers/blacklist (best-effort) and ALWAYS return stable sets.
@@ -2387,6 +2465,9 @@ def main_once():
     cfg["access_token"] = secrets["access_token"]
     # auto-sync managers + blacklist (following/blocks)
     managers_set, blacklist_set = sync_managers_and_blacklist(cfg)
+    # manager update (private DM) - counts only, no leaks
+    maybe_send_manager_update_dms(cfg, managers_set)
+
     added_support = ingest_support_requests(cfg, managers_set)
     if added_support:
         log_line(f"support_requests added={added_support} file={str(SUPPORT_REQUESTS_PATH)}")
