@@ -1,5 +1,3 @@
-# README.md
-
 ## Repository structure (what is what)
 
 **Tracked (GitHub):**
@@ -61,21 +59,16 @@ During beta, moderation rules may evolve; see `docs/MODERATION.md`.
 - Better reporter feedback (clear rejection reasons + fix hints)
 - Stronger duplicate/proximity matching
 - Trust levels for reporters + distributed review
-- Add Telegram group integration as an additional inbound reporting channel (photo + `#sticker_report` + location)
-- Add Signal group integration as an additional inbound reporting channel (photo + `#sticker_report` + location; inbound-only in beta due to unofficial tooling)
-- Support “Chat = City” mapping for messenger groups (per-group fixed city; allow street/crossing only)
+- Messenger inbound (Telegram/Signal): photo + hashtag + location, optional “Chat = City” default
+- Multi-category reports beyond stickers (e.g., graffiti) with filters in the map/UI
 
-  ### Mid-term
-- Add **Signal group integration** as an additional *input channel* (same rules as Telegram).
-- Reliability hardening:
-  - Attachment handling + dedupe (image hash)
-  - Abuse/spam throttling per sender/chat
-  - Structured “NEEDS_INFO” feedback workflow
-
-### Notes / constraints
-- Signal integration is **unofficial tooling** (higher maintenance risk); keep it **inbound-only** and low-volume in beta.
+### Mid-term
+- Reliability hardening: attachment handling, image-hash dedupe, spam throttling
+- Review workflow improvements (NEEDS_INFO loop, manager tooling)
+- Optional: per-city/region moderation teams (trust tiers)
 
 More: `docs/ROADMAP.md`
+
 
 ## Developer setup
 See `docs/DEVELOPERS.md`
