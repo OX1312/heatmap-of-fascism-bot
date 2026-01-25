@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 import ssl
 import certifi
 import os
@@ -833,23 +833,34 @@ def _wiki_summary(lang: str, title: str, user_agent: str) -> str:
 
 def maybe_idle_enrich_entities(cfg: dict) -> None:
     """
-    When idle, enrich ONE missing entity description per interval and cache it in entities.json.
-    Safe rules:
-    - Only if entities.json exists and contains wiki_* title.
-    - Only if desc is empty.
-    - Rate-limited by entity_enrich_min_interval_s.
+    Idle background task (EN-only):
+    - Find ONE entity with empty desc in entities.json
+    - Fetch a short EN description from Wikidata (cached into entities.json)
+    - Uses curl to avoid Python SSL trust-store issues on macOS.
+    Safe: never blocks main work; runs only when idle; writes only entities.json.
     """
-    global _LAST_ENTITY_ENRICH_TS, _ENTITY_ENRICH_CURSOR
     try:
-        if not bool(cfg.get("entity_enrich_idle", True)):
-            return
-        min_iv = float(cfg.get("entity_enrich_min_interval_s", 1800) or 1800)
-        lang = str(cfg.get("entity_enrich_lang", "de") or "de").strip().lower()
-        now = time.time()
-        if (now - float(_LAST_ENTITY_ENRICH_TS)) < min_iv:
+        import json, subprocess, urllib.parse
+        from pathlib import Path
+
+        if not bool(cfg.get("idle_entity_enrich", True)):
             return
 
-        p = Path("entities.json")
+        # rate limit (seconds)
+        every_s = int(cfg.get("idle_entity_enrich_every_s", 600) or 600)
+
+        # persistent throttle file (local)
+        throttle_path = ROOT / ".idle_entity_enrich_last.txt"
+        now = time.time()
+        last = 0.0
+        try:
+            last = float(throttle_path.read_text(encoding="utf-8").strip() or "0")
+        except Exception:
+            last = 0.0
+        if (now - last) < float(every_s):
+            return
+
+        p = ROOT / "entities.json"
         if not p.exists():
             return
 
@@ -857,45 +868,68 @@ def maybe_idle_enrich_entities(cfg: dict) -> None:
         if not isinstance(ent, dict) or not ent:
             return
 
-        keys = sorted(ent.keys())
-        if not keys:
-            return
-
-        start = int(_ENTITY_ENRICH_CURSOR) % len(keys)
-        picked = None
-
-        # round-robin scan for first missing desc with wiki title
-        for i in range(len(keys)):
-            k = keys[(start + i) % len(keys)]
-            e = ent.get(k) or {}
-            if not isinstance(e, dict):
+        # pick first missing desc
+        pick_key = ""
+        pick_term = ""
+        for k, v in ent.items():
+            if not isinstance(v, dict):
                 continue
-            if str(e.get("desc") or "").strip():
+            desc = str(v.get("desc") or "").strip()
+            if desc:
                 continue
-            title = e.get(f"wiki_{lang}") or e.get("wiki_de") or e.get("wiki_en")
-            if not title:
-                continue
-            picked = (k, e, str(title))
-            _ENTITY_ENRICH_CURSOR = (start + i + 1) % len(keys)
+            pick_key = str(k or "").strip().lower()
+            disp = str(v.get("display") or "").strip()
+            aliases = v.get("aliases") or []
+            a0 = str(aliases[0]).strip() if isinstance(aliases, list) and aliases else ""
+            pick_term = disp or a0 or pick_key
             break
 
-        if not picked:
+        if not pick_key:
+            # nothing to do
+            throttle_path.write_text(str(now), encoding="utf-8")
             return
 
-        k, e, title = picked
-        ua = str(cfg.get("user_agent") or "HeatmapOfFascismBot/EntityEnrich")
-        txt = _wiki_summary(lang, title, ua)
-        if txt:
-            e["desc"] = txt
-            ent[k] = e
-            p.write_text(json.dumps(ent, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            _LAST_ENTITY_ENRICH_TS = now
-            log_line(f"entity_enrich ok key={k} lang={lang} title={title}")
-        else:
-            log_line(f"entity_enrich skip key={k} lang={lang} title={title} reason=empty")
-    except Exception as ex:
-        log_line(f"entity_enrich ERROR err={ex!r}")
+        def _curl_json(url: str, timeout_s: int = 15) -> dict:
+            cmd = ["curl", "-fsSL", "--max-time", str(int(timeout_s)), url]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode != 0:
+                return {}
+            try:
+                return json.loads(r.stdout)
+            except Exception:
+                return {}
 
+        def _wikidata_desc_en(term: str) -> str:
+            q = urllib.parse.quote(term)
+            url = (
+                "https://www.wikidata.org/w/api.php"
+                f"?action=wbsearchentities&search={q}&language=en&format=json&limit=1"
+            )
+            data = _curl_json(url, timeout_s=15)
+            hits = (data or {}).get("search") or []
+            if not hits:
+                return ""
+            d = (hits[0].get("description") or "").strip()
+            if len(d) > 240:
+                d = d[:237].rstrip() + "…"
+            return d
+
+        desc = _wikidata_desc_en(pick_term) or (_wikidata_desc_en(pick_key) if pick_term != pick_key else "")
+        if not desc:
+            log_line(f"idle_enrich SKIP key={pick_key} term={pick_term!r} reason=no_wikidata_desc")
+            throttle_path.write_text(str(now), encoding="utf-8")
+            return
+
+        ent[pick_key]["desc"] = desc
+        p.write_text(json.dumps(ent, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        throttle_path.write_text(str(now), encoding="utf-8")
+        log_line(f"idle_enrich OK key={pick_key} desc_len={len(desc)} source=wikidata")
+    except Exception as e:
+        try:
+            log_line(f"idle_enrich ERROR err={e!r}")
+        except Exception:
+            pass
+        return
 def parse_location(text: str) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
     """
     Returns:
