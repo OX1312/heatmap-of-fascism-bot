@@ -2585,34 +2585,41 @@ def _load_manager_accounts(cfg: dict) -> list[str]:
     except Exception:
         accts = []
     accts = [str(a).strip() for a in accts if str(a).strip()]
-    # normalize to local part (no domain), keep without '@' for send_direct_message()
-    out = []
-    for a in accts:
-        a = str(a).strip()
-        if a.startswith("@"):
-            a = a[1:]
-        a = (a.split("@")[0]).strip()
-        if a:
-            out.append(a)
-    return out
+    return accts
 
-def _git_head_short() -> str:
-    try:
-        import subprocess
-        r = subprocess.run(["git","rev-parse","--short","HEAD"], capture_output=True, text=True)
-        if r.returncode == 0:
-            return (r.stdout or "").strip()
-    except Exception:
-        pass
-    return ""
+def _now_local():
+    # Europe/Berlin via system TZ; log formatter already uses astimezone()
+    return datetime.now(timezone.utc).astimezone()
+
+def _is_daily_send_window() -> bool:
+    # Hard rule: only send daily summary at 23:59 local time (or later)
+    t = _now_local()
+    return (t.hour == 23 and t.minute >= 59)
+
+def _update_buzzwords(cfg: dict) -> str:
+    # Keep this SHORT. No secrets. Pure manager-facing hints.
+    # Config override: cfg["manager_update_buzzwords"] = ["foo","bar"]
+    bw = cfg.get("manager_update_buzzwords")
+    if isinstance(bw, (list, tuple)) and bw:
+        items = [str(x).strip() for x in bw if str(x).strip()]
+        if items:
+            return ", ".join(items[:8])
+    # default buzzwords (safe)
+    return "spam-control, daily@23:59, version-gated updates, verify-or-unknown, stable category keys"
+
 
 def _manager_notify_update_once(cfg: dict, version_str: str) -> None:
+    """
+    Update DM: ONLY when version changes (e.g. 1.0.0 -> 1.0.1).
+    No git HEAD spam.
+    """
     if not bool(cfg.get("manager_notify_updates", True)):
         return
     try:
         state_path = ROOT / ".manager_last_update.txt"
-        head = _git_head_short()
-        token = f"{version_str}|{head}".strip("|")
+        token = str(version_str or "").strip()
+        if not token:
+            return
 
         last = ""
         try:
@@ -2620,39 +2627,54 @@ def _manager_notify_update_once(cfg: dict, version_str: str) -> None:
         except Exception:
             last = ""
 
-        if token and token == last:
+        # Only when version changes
+        if token == last:
             return
 
         accts = _load_manager_accounts(cfg)
         if not accts:
             log_line("manager_notify SKIP reason=no_manager_accounts")
-            if token:
-                state_path.write_text(token, encoding="utf-8")
+            # Still store token so we don't spam every loop
+            state_path.write_text(token, encoding="utf-8")
             return
+        buzz = str(_update_buzzwords(cfg) or '').strip()
+        if not buzz:
+            buzz = "maintenance"
+        buzz = str(_update_buzzwords(cfg) or "").strip()
+        if not buzz:
+            buzz = "maintenance"
 
-        # Keep message short, adult/clean (private manager coordination).
-        msg = f"🤖 🚀 Update deployed: v={version_str} (head={head or 'n/a'}).\nKey change: verify-or-unknown policy (no guessing)."
+        msg = f"🤖 🚀 Update deployed: v={version_str}\nChanges: {buzz}"
 
         ok = 0
-        for u in accts:
+        for a in accts:
+            u = a.lstrip("@").strip()
+            if not u:
+                continue
             if send_direct_message(cfg, u, msg):
                 ok += 1
 
         if ok:
             log_line(f"manager_notify OK kind=update managers_ok={ok} token={token}")
         else:
-            log_line("manager_notify ERROR kind=update err='all_dm_failed'")
+            log_line("manager_notify ERROR err='all_dm_failed'")
 
-        if token:
-            state_path.write_text(token, encoding="utf-8")
+        state_path.write_text(token, encoding="utf-8")
     except Exception as e:
         log_line(f"manager_notify ERROR kind=update outer_err={e!r}")
 
 def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, pending_left: int, version_str: str) -> None:
+    """
+    Daily summary DM:
+    - Only in window 23:59 local time
+    - Only once per day
+    - Only if values changed since last sent
+    """
     if not bool(cfg.get("manager_daily_summary", True)):
         return
+    if not _is_daily_send_window():
+        return
     try:
-        # Only send when something new happened (delta changed since last send).
         state_path = ROOT / ".manager_daily_state.json"
         prev = {}
         try:
@@ -2661,24 +2683,38 @@ def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, 
         except Exception:
             prev = {}
 
+        today = _now_local().date().isoformat()
         cur = {"added": int(added), "published": int(published), "pending_left": int(pending_left)}
-        if prev == cur:
+
+        last_day = str((prev or {}).get("last_day") or "")
+        last_cur = (prev or {}).get("last_cur") if isinstance(prev, dict) else None
+
+        # only once per day
+        if last_day == today:
+            return
+        # only if changed since last sent
+        if isinstance(last_cur, dict) and last_cur == cur:
+            # mark day as done to prevent repeated checks in the window
+            state_path.write_text(__import__("json").dumps({"last_day": today, "last_cur": last_cur}), encoding="utf-8")
             return
 
         accts = _load_manager_accounts(cfg)
         if not accts:
             log_line("manager_summary SKIP reason=no_manager_accounts")
-            state_path.write_text(__import__("json").dumps(cur), encoding="utf-8")
+            state_path.write_text(__import__("json").dumps({"last_day": today, "last_cur": cur}), encoding="utf-8")
             return
 
         msg = (
-            f"🤖 🚀 Daily summary (only on change)\n"
+            "🤖 🚀 Daily summary (23:59, only on change)\n"
             f"v={version_str}\n"
             f"added={cur['added']} | published={cur['published']} | pending_left={cur['pending_left']}"
         )
 
         ok = 0
-        for u in accts:
+        for a in accts:
+            u = a.lstrip("@").strip()
+            if not u:
+                continue
             if send_direct_message(cfg, u, msg):
                 ok += 1
 
@@ -2687,7 +2723,7 @@ def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, 
         else:
             log_line("manager_summary ERROR err='all_dm_failed'")
 
-        state_path.write_text(__import__("json").dumps(cur), encoding="utf-8")
+        state_path.write_text(__import__("json").dumps({"last_day": today, "last_cur": cur}), encoding="utf-8")
     except Exception as e:
         log_line(f"manager_summary ERROR outer_err={e!r}")
 
@@ -3959,6 +3995,7 @@ def normalize_reports_geojson(reports: dict) -> None:
             p["entity_display"] = "Unknown"
             p["entity_desc"] = "Unknown (needs verification)"
             p["category"] = "Unknown"
+            p["category_display"] = "Unknown"
         # Derived date fields for statistics (avoid duplicate truth)
         fs = p.get("first_seen") or ""
         ls = p.get("last_seen") or ""
