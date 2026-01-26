@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.9"
+__version__ = "0.2.10"
 import ssl
 import certifi
 import os
@@ -720,15 +720,31 @@ out tags geom;
 # =========================
 
 def maybe_snap_to_public_way(lat: float, lon: float, cfg: dict, geocode_method: str) -> tuple[float, float, str, str]:
-    """Snap-to-public-way with hard max-distance guard (default 50m). Returns (lat, lon, geocode_method, snap_note)."""
+    """Snap-to-public-way with hard max-distance guard (default 50m).
+    HIERARCHY (correctness first):
+      - GPS / explicit coordinates MUST NOT be moved by default.
+      - Only non-GPS (fallback/geocode) may be snapped (guarded).
+    Returns (lat, lon, geocode_method, snap_note).
+    """
     orig_lat, orig_lon = float(lat), float(lon)
+
+    if not bool(cfg.get("snap_enabled", True)):
+        return orig_lat, orig_lon, geocode_method, "snap_disabled"
+
+    gm = str(geocode_method or "")
+    allow_gps = bool(cfg.get("snap_allow_gps", False))
+    if gm.startswith("gps") and not allow_gps:
+        return orig_lat, orig_lon, geocode_method, "snap_skipped:gps"
+
     _slat, _slon, _snote = snap_to_public_way(orig_lat, orig_lon, cfg["user_agent"])
     if not _snote:
         return orig_lat, orig_lon, geocode_method, ""
+
     SNAP_MAX_M = float(cfg.get("snap_max_m", 50.0))
     dist_m = haversine_m(orig_lat, orig_lon, float(_slat), float(_slon))
     if dist_m <= SNAP_MAX_M:
         return float(_slat), float(_slon), f"{geocode_method}+{_snote}", _snote
+
     # reject snap -> keep original coords, keep method (no silent wrong pins)
     return orig_lat, orig_lon, geocode_method, f"{_snote}+rejected:{int(dist_m)}m"
 
@@ -2756,7 +2772,7 @@ def log_line(msg: str) -> None:
 # === ENTITY_ENRICH_WIKI_START ===
 def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = None) -> tuple[str, str]:
     """
-    Wikipedia EN lookup:
+    Wikipedia lookup (EN default):
       - search best title
       - fetch summary extract
     Returns (title, 1-2 sentence summary) or ("","") on miss.
@@ -2767,6 +2783,10 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
     try:
         import time as _time
         from urllib.parse import quote as _quote
+
+        headers = {
+            "User-Agent": (str(user_agent).strip() if user_agent else "HeatmapOfFascismBot")
+        }
 
         # 1) search
         surl = f"https://{lang}.wikipedia.org/w/rest.php/v1/search/title"
@@ -2781,7 +2801,9 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
             _time.sleep(wait_s)
             return ("", "")
         if r.status_code != 200:
+            print(f"wiki_search http={r.status_code} q={q!r}")
             return ("", "")
+
         js = r.json() or {}
         pages = js.get("pages") or []
         if not pages or not isinstance(pages, list):
@@ -2795,6 +2817,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         u2 = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{t_enc}"
         r2 = requests.get(u2, headers=headers, timeout=MASTODON_TIMEOUT_S)
         if r2.status_code != 200:
+            print(f"wiki_summary http={r2.status_code} title={title!r}")
             return (title, "")
         js2 = r2.json() or {}
         extract = str(js2.get("extract") or "").strip()
@@ -2807,7 +2830,8 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         if len(out) > 420:
             out = out[:417].rstrip() + "..."
         return (title, out)
-    except Exception:
+    except Exception as e:
+        print(f"wiki_error err={e!r}")
         return ("", "")
 
 def _is_code_category(st: str) -> bool:
@@ -2821,7 +2845,7 @@ def _entity_query_normalize(q: str) -> str:
     # hard-block pure numbers or very short junk
     if re.fullmatch(r"\d+", q):
         return ""
-    # common abbrev normalizations (EN Wikipedia-friendly)
+    # common abbrev normalizations (Wikipedia-friendly)
     uq = q.upper().strip()
     if uq in ("AFD", "A.F.D."):
         return "Alternative for Germany"
@@ -2853,10 +2877,9 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
                 props["category_display"] = cd
                 changed_ui += 1
 
-        # entity enrichment (budgeted)
+        # entity enrichment budget
         if budget and changed_entity >= budget:
             continue
-
         if str(props.get("entity_desc") or "").strip():
             continue
 
@@ -2865,7 +2888,6 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
             # fallback: use category only if it's not a code-category
             if st and st.lower() != "unknown" and not _is_code_category(st):
                 q = _entity_query_normalize(st)
-
         if not q:
             continue
 
@@ -2883,6 +2905,7 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
 
     return int(changed_ui + changed_entity)
 # === ENTITY_ENRICH_WIKI_END ===
+
 
 def main_once():
     # Ensure baseline files exist
@@ -3714,7 +3737,8 @@ def normalize_reports_geojson(reports: dict) -> None:
         if yi < 1900 or yi > 2100 or mi < 1 or mi > 12:
             return None
         return yi, mi, f"{y}-{m}"
-    """Hard safety: ensure properties.lat/lon exist and match geometry (GeoJSON is [lon,lat])."""
+
+    # Hard safety: ensure properties.lat/lon exist and match geometry (GeoJSON is [lon,lat]).
     feats = (reports or {}).get("features") or []
     for f in feats:
         if not isinstance(f, dict):
@@ -3727,8 +3751,8 @@ def normalize_reports_geojson(reports: dict) -> None:
             lon = float(coords[0]); lat = float(coords[1])
         except Exception:
             continue
-        p = f.get("properties") or {}
 
+        p = f.get("properties") or {}
 
         # entity fields (stable for filter/search)
         ek = str(p.get("entity_key") or "").strip()
@@ -3739,8 +3763,9 @@ def normalize_reports_geojson(reports: dict) -> None:
             if not p.get("entity_desc"):
                 p["entity_desc"] = str(ent.get("desc") or "")
         else:
-            p.setdefault("entity_display","")
-            p.setdefault("entity_desc","")
+            p.setdefault("entity_display", "")
+            p.setdefault("entity_desc", "")
+
         # Derived date fields for statistics (avoid duplicate truth)
         fs = p.get("first_seen") or ""
         ls = p.get("last_seen") or ""
@@ -3754,11 +3779,33 @@ def normalize_reports_geojson(reports: dict) -> None:
             p["last_seen_year"], p["last_seen_month"], p["last_seen_ym"] = _ls
         else:
             p["last_seen_year"], p["last_seen_month"], p["last_seen_ym"] = None, None, ""
-        if p.get("lat") is None or p.get("lon") is None:
-            p["lat"] = lat
-            p["lon"] = lon
-            f["properties"] = p
 
+        # Always enforce props lat/lon from geometry (HIERARCHY: geometry is truth)
+        p["lat"] = lat
+        p["lon"] = lon
+
+        # Professional property order (readable diffs)
+        key_order = [
+            "id","source","status_id","instance_url",
+            "status","sticker_type","category_display",
+            "entity_raw","entity_key","entity_display","entity_desc",
+            "notes",
+            "first_seen","last_seen","seen_count","removed_at",
+            "first_seen_year","first_seen_month","first_seen_ym",
+            "last_seen_year","last_seen_month","last_seen_ym",
+            "accuracy_m","radius_m","geocode_method","snap_note",
+            "location_text","lat","lon","media",
+        ]
+        p2 = {}
+        for k in key_order:
+            if k in p:
+                p2[k] = p[k]
+        # keep any remaining keys (sorted for stable output)
+        for k in sorted(p.keys()):
+            if k not in p2:
+                p2[k] = p[k]
+
+        f["properties"] = p2
 
 if __name__ == "__main__":
     import sys
