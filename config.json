@@ -25,6 +25,6 @@
   "entity_enrich_idle": true,
   "entity_enrich_lang": "de",
   "entity_enrich_min_interval_s": 1800,
-  "idle_entity_enrich": true,
+  "idle_entity_enrich": false,
   "idle_entity_enrich_every_s": 600
 }
