@@ -2757,6 +2757,122 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
 def log_line(msg: str) -> None:
     print(msg, flush=True)
 
+
+# === ENTITY_ENRICH_WIKI_START ===
+def _wiki_best_summary(q: str, *, lang: str = "en") -> tuple[str, str]:
+    """
+    Wikipedia EN lookup:
+      - search best title
+      - fetch summary extract
+    Returns (title, 1-2 sentence summary) or ("","") on miss.
+    """
+    q = (q or "").strip()
+    if not q:
+        return ("", "")
+    try:
+        import time as _time
+        from urllib.parse import quote as _quote
+
+        # 1) search
+        surl = f"https://{lang}.wikipedia.org/w/rest.php/v1/search/title"
+        r = requests.get(surl, params={"q": q, "limit": 1}, timeout=MASTODON_TIMEOUT_S)
+        if r.status_code == 429:
+            ra = (r.headers or {}).get("Retry-After")
+            try:
+                wait_s = max(1, min(300, int(str(ra).strip()))) if ra else 30
+            except Exception:
+                wait_s = 30
+            print(f"wiki_search http=429 rate_limited wait_s={wait_s}")
+            _time.sleep(wait_s)
+            return ("", "")
+        if r.status_code != 200:
+            return ("", "")
+        js = r.json() or {}
+        pages = js.get("pages") or []
+        if not pages or not isinstance(pages, list):
+            return ("", "")
+        title = str((pages[0] or {}).get("title") or "").strip()
+        if not title:
+            return ("", "")
+
+        # 2) summary
+        t_enc = _quote(title, safe="")
+        u2 = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{t_enc}"
+        r2 = requests.get(u2, timeout=MASTODON_TIMEOUT_S)
+        if r2.status_code != 200:
+            return (title, "")
+        js2 = r2.json() or {}
+        extract = str(js2.get("extract") or "").strip()
+        if not extract:
+            return (title, "")
+
+        # keep 1-2 sentences max
+        parts = re.split(r"(?<=[.!?])\s+", extract)
+        out = " ".join([p for p in parts[:2] if p]).strip()
+        if len(out) > 420:
+            out = out[:417].rstrip() + "..."
+        return (title, out)
+    except Exception:
+        return ("", "")
+
+def _is_code_category(st: str) -> bool:
+    st = (st or "").strip()
+    return bool(re.match(r"^auf\d+$", st, flags=re.I))
+
+def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> int:
+    """
+    Idle enrichment for published features:
+      - fills entity_display/entity_desc (EN Wikipedia)
+      - fills category_display (UI only)
+    Never guesses without a source.
+    """
+    feats = list((reports or {}).get("features") or [])
+    if not feats:
+        return 0
+
+    changed = 0
+    budget = max(0, int(max_per_run))
+
+    for f in feats:
+        if budget and changed >= budget:
+            break
+        props = (f or {}).get("properties") or {}
+
+        # category_display (UI only)
+        st = str(props.get("sticker_type") or "").strip()
+        if st:
+            cd = st.upper() if _is_code_category(st) else st
+            if str(props.get("category_display") or "") != cd:
+                props["category_display"] = cd
+                changed += 1
+                if budget and changed >= budget:
+                    break
+
+        # entity enrichment
+        if str(props.get("entity_desc") or "").strip():
+            continue
+
+        q = str(props.get("entity_raw") or "").strip()
+        if not q:
+            # fallback: use category only if it's not a code-category
+            if st and st.lower() != "unknown" and not _is_code_category(st):
+                q = st
+
+        if not q:
+            continue
+
+        title, summ = _wiki_best_summary(q, lang="en")
+        if not summ:
+            continue
+
+        if title and not str(props.get("entity_display") or "").strip():
+            props["entity_display"] = title
+        props["entity_desc"] = summ
+        changed += 1
+
+    return int(changed)
+# === ENTITY_ENRICH_WIKI_END ===
+
 def main_once():
     # Ensure baseline files exist
     ensure_object_file(CACHE_PATH)
@@ -3481,6 +3597,16 @@ def main_once():
 
     # reports.geojson: write+push ONLY when content changed (keeps repo clean)
     reports_dirty = bool(published or removed or fav_removed or ctx_changed or v_removed)
+    # 4) Idle enrichment (Wikipedia EN) — safe, no guessing
+    try:
+        max_en = int(cfg.get("entity_enrich_max_per_run", 2))
+    except Exception:
+        max_en = 2
+    if bool(cfg.get("entity_enrich_enabled", True)):
+        enr = enrich_entities_idle(cfg, reports, max_per_run=max_en)
+        if enr:
+            reports_dirty = True
+            log_line(f"entity_enrich updated={enr}")
     if reports_dirty:
         for f in (reports.get("features") or []):
             props = (f or {}).get("properties") or {}
