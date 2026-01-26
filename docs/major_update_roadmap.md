@@ -5,10 +5,11 @@ Hintergrund und Ziele
 Die Heatmap of Fascism dokumentiert faschistische Sticker und Graffiti durch gezielte Meldungen in Mastodon. Alle Berichte werden manuell moderiert, bevor sie als GeoJSON‑Feature in reports.geojson veröffentlicht werden ￼. Die Plattform soll verlässliche Daten liefern, ohne passives Scraping ￼. Nach der ersten Beta‑Phase gibt es noch technische und organisatorische Baustellen. Das nächste Major‑Update soll Fehler korrigieren, Automatisierung erhöhen, Datenkonsistenz sichern und die Workflows professionalisieren, damit Administratoren und Moderatoren möglichst wenig Nacharbeit haben.
 
 Phase 1: Sofortige Korrekturen und Bereinigung
-	1.	Korrekte Beschreibung von 1161/“AUF1” – Die bisherige Beschreibung nennt nur das ausgeschriebene Kürzel. Aus öffentlichen Quellen geht hervor, dass AUF1 ein rechtsextremer, verschwörungstheoretischer Kanal ist ￼. Die Beschreibung sollte daher wie folgt aktualisiert werden:
-	•	display: AUF1 (also known as 'Auf1')
-	•	desc: DE: Alternatives Unabhängiges Fernsehen, Kanal 1; ein rechtsextremes Medienportal, das Verschwörungstheorien verbreitet und die Parteien AfD und FPÖ lobt [oai_citation:3‡en.wikipedia.org](https://en.wikipedia.org/wiki/AUF1_(channel)#:~:text=AUF1%20is%20an%20Austrian%20far,In%202022%2C%20the%20Austrian%20media).\nEN: Alternative Independent Television, Channel 1; an Austrian far‑right media outlet known for promoting conspiracy theories and misinformation [oai_citation:4‡en.wikipedia.org](https://en.wikipedia.org/wiki/AUF1_(channel)#:~:text=AUF1%20is%20an%20Austrian%20far,In%202022%2C%20the%20Austrian%20media).
-	•	Ergänze in entities.json auch einen Eintrag für den Schlüssel AUF1 mit identischer Beschreibung.
+	1.	Trenne **1161** (Zahlencode) von **AUF1** (Sender) – niemals vermischen:
+	•	`entities.json["1161"]` = Zahlencode „Anti-Antifa / Anti-Antifaschistische Aktion“ (Symbolcode)
+	•	`entities.json["auf1"]` = Medienkanal AUF1 (eigener Entity-Key)
+	•	Regel: Alias handling darf nur Schreibvarianten auf **denselben** Key normalisieren – nie unterschiedliche Entitäten mergen.
+
 	2.	Überprüfung aller entities.json‑Einträge – Gleiche Struktur für jeden Eintrag: Feld display mit deutsch/englischem Namen, Feld desc mit deutscher Langform + englischer Übersetzung und Kontext (politische Einstufung, Organisationstyp). Jede Kurzform (AfD, NPD etc.) sollte eine aussagekräftige Beschreibung erhalten.
 	3.	Datenbereinigung – Führe ein Skript aus, das reports.geojson auf fehlerhafte oder leere Felder prüft:
 	•	Fehlende category, entity_display oder entity_desc ergänzen.

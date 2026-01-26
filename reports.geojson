@@ -178,8 +178,8 @@
         "category_display": "1161",
         "entity_raw": "",
         "entity_key": "1161",
-        "entity_display": "AUF1 (also known as 'Auf1')",
-        "entity_desc": "DE: Alternatives Unabhängiges Fernsehen, Kanal 1.\nEN: Alternative Independent Television, Channel 1.",
+        "entity_display": "1161 (numeric code: Anti-Antifa / Anti-Antifaschistische Aktion)",
+        "entity_desc": "DE: In rechtsextremen Kontexten verwendeter Zahlencode für „Anti-Antifaschistische Aktion“ (Anti-Antifa) als Gegenposition zur antifaschistischen Bewegung. (Quelle: Wikipedia „Rechtsextreme Symbole und Zeichen“)\nEN: Numeric code used in far-right contexts meaning “Anti-Antifascist Action” (Anti-Antifa), i.e. opposition to antifascist movements. (Source: Wikipedia on right-wing symbols)",
         "notes": "",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
@@ -200,7 +200,7 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg"
         ],
-        "category": "AUF1 (also known as 'Auf1')",
+        "category": "1161 (numeric code: Anti-Antifa / Anti-Antifaschistische Aktion)",
         "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956523282215370",
         "entity_prev_desc": "Internal reviewed code (whitelisted).",
         "entity_prev_display": "1161",
@@ -230,8 +230,8 @@
         "category_display": "1161",
         "entity_raw": "",
         "entity_key": "1161",
-        "entity_display": "AUF1 (also known as 'Auf1')",
-        "entity_desc": "DE: Alternatives Unabhängiges Fernsehen, Kanal 1.\nEN: Alternative Independent Television, Channel 1.",
+        "entity_display": "1161 (numeric code: Anti-Antifa / Anti-Antifaschistische Aktion)",
+        "entity_desc": "DE: In rechtsextremen Kontexten verwendeter Zahlencode für „Anti-Antifaschistische Aktion“ (Anti-Antifa) als Gegenposition zur antifaschistischen Bewegung. (Quelle: Wikipedia „Rechtsextreme Symbole und Zeichen“)\nEN: Numeric code used in far-right contexts meaning “Anti-Antifascist Action” (Anti-Antifa), i.e. opposition to antifascist movements. (Source: Wikipedia on right-wing symbols)",
         "notes": "",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
@@ -252,7 +252,7 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg"
         ],
-        "category": "AUF1 (also known as 'Auf1')",
+        "category": "1161 (numeric code: Anti-Antifa / Anti-Antifaschistische Aktion)",
         "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956581847599362",
         "entity_prev_desc": "Internal reviewed code (whitelisted).",
         "entity_prev_display": "1161",

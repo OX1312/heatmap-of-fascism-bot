@@ -8,7 +8,11 @@
     "desc": "A far-right Austrian media outlet (online TV / YouTube-style channel)."
   },
   "1161": {
-    "display": "AUF1 (also known as 'Auf1')",
-    "desc": "DE: Alternatives Unabhängiges Fernsehen, Kanal 1.\nEN: Alternative Independent Television, Channel 1."
+    "display": "1161 (numeric code: Anti-Antifa / Anti-Antifaschistische Aktion)",
+    "desc": "DE: In rechtsextremen Kontexten verwendeter Zahlencode für „Anti-Antifaschistische Aktion“ (Anti-Antifa) als Gegenposition zur antifaschistischen Bewegung. (Quelle: Wikipedia „Rechtsextreme Symbole und Zeichen“)\nEN: Numeric code used in far-right contexts meaning “Anti-Antifascist Action” (Anti-Antifa), i.e. opposition to antifascist movements. (Source: Wikipedia on right-wing symbols)",
+    "sources": [
+      "wiki-rightwing-symbols-de",
+      "bige-codes-de"
+    ]
   }
 }
