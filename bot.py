@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.14"
+__version__ = "1.0.0"
 import ssl
 import certifi
 import os
