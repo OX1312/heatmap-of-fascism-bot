@@ -26,5 +26,11 @@
   "entity_enrich_lang": "de",
   "entity_enrich_min_interval_s": 1800,
   "idle_entity_enrich": false,
-  "idle_entity_enrich_every_s": 600
+  "idle_entity_enrich_every_s": 600,
+  "manager_notify_updates": true,
+  "manager_daily_summary": true,
+  "manager_daily_summary_hour_local": 9,
+  "manager_accounts": [
+    "buntepanther"
+  ]
 }

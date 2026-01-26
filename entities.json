@@ -1,24 +1,24 @@
 {
   "AFD": {
     "display": "AfD",
-    "desc": "Far-right political party in Germany."
+    "desc": "Far-right political party in Germany (German: \"Alternative für Deutschland\")."
   },
   "auf1": {
     "display": "AUF1 (Alternatives Unabhängiges Fernsehen, Kanal 1)",
-    "desc": "DE: AUF1 (»Alternatives Unabhängiges Fernsehen, Kanal 1«) ist eine österreichische Online-Medienplattform / Website. In öffentlichen Referenz- und Medienquellen wird AUF1 u. a. im Kontext von Desinformation/Verschwörungserzählungen sowie regulatorischen Fragen zur Ausstrahlung ohne Zulassung beschrieben. (Quellen: auf1-wiki-de; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)\nEN: AUF1 (\"Alternative Independent Television, Channel 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)",
     "sources": [
       "auf1-wiki-de",
       "auf1-wiki-en",
       "tagesschau-auf1-desinformation",
       "kommaustria-auf1tv-2023-05-17"
-    ]
+    ],
+    "desc": "AUF1 (German original: \"Alternatives Unabhängiges Fernsehen, Kanal 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-de; auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)"
   },
   "1161": {
-    "display": "1161 (numeric code: Anti-Antifa / Anti-Antifaschistische Aktion)",
-    "desc": "DE: In rechtsextremen Kontexten verwendeter Zahlencode für „Anti-Antifaschistische Aktion“ (Anti-Antifa) als Gegenposition zur antifaschistischen Bewegung. (Quelle: Wikipedia „Rechtsextreme Symbole und Zeichen“)\nEN: Numeric code used in far-right contexts meaning “Anti-Antifascist Action” (Anti-Antifa), i.e. opposition to antifascist movements. (Source: Wikipedia on right-wing symbols)",
+    "display": "1161",
     "sources": [
       "wiki-rightwing-symbols-de",
       "bige-codes-de"
-    ]
+    ],
+    "desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)"
   }
 }
