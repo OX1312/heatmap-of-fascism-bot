@@ -3791,37 +3791,32 @@ def normalize_reports_geojson(reports: dict) -> None:
             continue
 
         p = f.get("properties") or {}
-
         # entity fields (stable for filter/search)
         ek = str(p.get("entity_key") or "").strip()
 
-        # Human-facing Category label for UI:
-        # Prefer entities.json display (reviewed), else existing entity_display, else sticker_type.
-        cat = ""
-        if isinstance(entities, dict) and ek and (ek in entities):
-            cat = str((entities.get(ek) or {}).get("display") or "").strip()
-        if not cat:
-            cat = str(p.get("entity_display") or "").strip()
-        if not cat:
-            cat = str(p.get("sticker_type") or "").strip()
-        p["category"] = cat
-
-        # If entity_key is missing, allow reviewed/code entities via whitelist:
-        # If sticker_type matches a key in entities.json, we treat it as entity_key (no guessing).
+        # Resolve entity_key from sticker_type ONLY if it is a VERIFIED key in entities.json (no guessing).
         st = str(p.get("sticker_type") or "").strip()
         if (not ek) and st and isinstance(entities, dict) and (st in entities):
             p["entity_key"] = st
             ek = st
-        if ek and isinstance(entities, dict) and ek in entities:
-            ent = entities.get(ek) or {}
-            if not p.get("entity_display"):
-                p["entity_display"] = str(ent.get("display") or "")
-            if not p.get("entity_desc"):
-                p["entity_desc"] = str(ent.get("desc") or "")
-        else:
-            p.setdefault("entity_display", "")
-            p.setdefault("entity_desc", "")
 
+        # HARD POLICY: verify-or-unknown
+        # - Only verified keys in entities.json may populate display/desc/category.
+        # - Unknown/unverified keys must NEVER be "interpreted".
+        if isinstance(entities, dict) and ek and (ek in entities):
+            ent = entities.get(ek) or {}
+            p["needs_verification"] = False
+            p["entity_display"] = str(ent.get("display") or "")
+            p["entity_desc"] = str(ent.get("desc") or "")
+            p["category"] = p["entity_display"] or ek
+        else:
+            # keep the raw key for filtering/statistics, but do not assign meaning
+            if ek:
+                p["entity_key"] = ek
+            p["needs_verification"] = True
+            p["entity_display"] = "Unknown"
+            p["entity_desc"] = "Unknown (needs verification)"
+            p["category"] = "Unknown"
         # Derived date fields for statistics (avoid duplicate truth)
         fs = p.get("first_seen") or ""
         ls = p.get("last_seen") or ""
