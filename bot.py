@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.12"
+__version__ = "0.2.13"
 import ssl
 import certifi
 import os
@@ -3794,6 +3794,13 @@ def normalize_reports_geojson(reports: dict) -> None:
 
         # entity fields (stable for filter/search)
         ek = str(p.get("entity_key") or "").strip()
+
+        # If entity_key is missing, allow reviewed/code entities via whitelist:
+        # If sticker_type matches a key in entities.json, we treat it as entity_key (no guessing).
+        st = str(p.get("sticker_type") or "").strip()
+        if (not ek) and st and isinstance(entities, dict) and (st in entities):
+            p["entity_key"] = st
+            ek = st
         if ek and isinstance(entities, dict) and ek in entities:
             ent = entities.get(ek) or {}
             if not p.get("entity_display"):
