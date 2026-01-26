@@ -3275,6 +3275,11 @@ def main_once():
             "location_text": location_text,
 
             "sticker_type": sticker_type,
+            "notes": notes,
+            "entity_raw": entity_raw,
+            "entity_key": entity_key,
+            "entity_display": entity_display,
+            "entity_desc": entity_desc,
             "removed_at": removed_at,
 
             "media": media_urls,
@@ -3381,6 +3386,12 @@ def main_once():
             notes=str(item.get("notes") or ""),
             removed_at=new_removed_at,
         )
+
+        # carry entity/notes into published feature (popup)
+        new_feat["properties"]["entity_raw"] = str(item.get("entity_raw") or "")
+        new_feat["properties"]["entity_key"] = str(item.get("entity_key") or "")
+        new_feat["properties"]["entity_display"] = str(item.get("entity_display") or "")
+        new_feat["properties"]["entity_desc"] = str(item.get("entity_desc") or "")
 
         # Dupe merge:
         new_p = new_feat["properties"]
