@@ -106,8 +106,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          10.6926602,
-          53.8503179
+          10.69232,
+          53.85007
         ]
       },
       "properties": {
@@ -135,10 +135,10 @@
         "last_seen_ym": "2026-01",
         "accuracy_m": 10,
         "radius_m": 10,
-        "geocode_method": "gps+snap_walk:footway",
+        "geocode_method": "gps",
         "location_text": "53.85007, 10.69232",
-        "lat": 53.8503179,
-        "lon": 10.6926602,
+        "lat": 53.85007,
+        "lon": 10.69232,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg"
         ],
@@ -147,7 +147,11 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg",
         "name": "sticker AFD 2026-01 present #2297",
-        "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297"
+        "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297",
+        "snap_prev_method": "gps+snap_walk:footway",
+        "snap_prev_lat": 53.8503179,
+        "snap_prev_lon": 10.6926602,
+        "snap_prev_dist_m": 35.5
       }
     },
     {
@@ -204,8 +208,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          12.895855039894002,
-          51.95541397936858
+          12.895656,
+          51.955382
         ]
       },
       "properties": {
@@ -233,10 +237,10 @@
         "last_seen_ym": "2026-01",
         "accuracy_m": 10,
         "radius_m": 10,
-        "geocode_method": "gps+snap_walk:footway|avoid_building",
+        "geocode_method": "gps",
         "location_text": "51.955382, 12.895656",
-        "lat": 51.95541397936858,
-        "lon": 12.895855039894002,
+        "lat": 51.955382,
+        "lon": 12.895656,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg"
         ],
@@ -245,7 +249,11 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg",
         "name": "sticker 1161 2026-01 present #9362",
-        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362"
+        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362",
+        "snap_prev_method": "gps+snap_walk:footway|avoid_building",
+        "snap_prev_lat": 51.95541397936858,
+        "snap_prev_lon": 12.895855039894002,
+        "snap_prev_dist_m": 14.1
       }
     }
   ]
