@@ -21,8 +21,8 @@ bot_version     – version + modes (+ git hash)
 test_report     – test_mode status
 auto_report     – auto_push_reports status
 log_launchd     – tail bot.launchd.log
-log_normal      – tail normal-YYYY-MM-DD.log
-log_event       – tail event-YYYY-MM-DD.log
+log_normal      – tail logs/normal-YYYY-MM-DD.log
+log_event       – tail logs/event-YYYY-MM-DD.log
 show_errors     – fehler grep (heute)
 compile_py      – "$REPO/.venv/bin/python" -m py_compile bot.py
 git_status      – git status
@@ -85,9 +85,16 @@ PY
     ;;
 
   log_launchd) tail -n 120 -F bot.launchd.log ;;
-  log_normal)  tail -n 200 -F "normal-$(today).log" ;;
-  log_event)   tail -n 200 -F "event-$(today).log" ;;
-  show_errors) grep -nE "(ERROR|WARN|FAILED|Exception|Traceback|\\b(401|403|404|410|429)\\b|\\b5[0-9]{2}\\b|timeout)" "normal-$(today).log" | tail -n 120 || true ;;
+  log_normal)  f="logs/normal-$(today).log"; [ -f "$f" ] || f="normal-$(today).log"; tail -n 200 -F "$f" ;;
+  log_event)   f="logs/event-$(today).log";  [ -f "$f" ] || f="event-$(today).log";  tail -n 200 -F "$f" ;;
+  show_errors)
+    pat="(ERROR|WARN|FAILED|Exception|Traceback|\b(401|403|404|410|429)\b|\b5[0-9]{2}\b|timeout)"
+    for f in "logs/normal-$(today).log" "logs/event-$(today).log" "bot.launchd.log" "normal-$(today).log" "event-$(today).log"; do
+      [ -f "$f" ] || continue
+      echo "---- $f ----"
+      grep -nE "$pat" "$f" | tail -n 120 || true
+    done
+    ;;
   compile_py)  "$REPO/.venv/bin/python" -m py_compile bot.py && echo ok ;;
   git_status)  git status ;;
   git_diff)    git diff --stat ;;
