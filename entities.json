@@ -1,6 +1,6 @@
 {
   "AFD": {
-    "display": "Alternative for Germany",
+    "display": "AfD",
     "desc": "Far-right political party in Germany."
   },
   "auf1": {
@@ -8,7 +8,7 @@
     "desc": "A far-right Austrian media outlet (online TV / YouTube-style channel)."
   },
   "1161": {
-    "display": "AUF1 / 1161",
+    "display": "AUF1",
     "desc": "AUF1 (also known as 'Auf1') is a far-right online media outlet; '1161' is its internal reviewed code in this dataset."
   }
 }
