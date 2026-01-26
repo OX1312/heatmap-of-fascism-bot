@@ -121,7 +121,7 @@
         "entity_raw": "",
         "entity_key": "AFD",
         "entity_display": "Alternative for Germany",
-        "entity_desc": "Alternative for Germany is a far-right, right-wing populist,\nnational conservative, and völkisch nationalist political party in Germany. It has 151 members of the Bundestag and 15 members of the European Parliament.",
+        "entity_desc": "Far-right political party in Germany.",
         "notes": "",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
@@ -152,7 +152,8 @@
         "snap_prev_lat": 53.8503179,
         "snap_prev_lon": 10.6926602,
         "snap_prev_method": "gps+snap_walk:footway",
-        "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297"
+        "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297",
+        "entity_prev_desc": "Alternative for Germany is a far-right, right-wing populist,\nnational conservative, and völkisch nationalist political party in Germany. It has 151 members of the Bundestag and 15 members of the European Parliament."
       }
     },
     {
@@ -174,8 +175,8 @@
         "category_display": "1161",
         "entity_raw": "",
         "entity_key": "1161",
-        "entity_display": "1161",
-        "entity_desc": "Internal reviewed code (whitelisted).",
+        "entity_display": "AUF1 / 1161",
+        "entity_desc": "AUF1 (also known as 'Auf1') is a far-right online media outlet; '1161' is its internal reviewed code in this dataset.",
         "notes": "",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
@@ -201,7 +202,9 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg",
         "name": "sticker 1161 2026-01 present #5370",
-        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956523282215370"
+        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956523282215370",
+        "entity_prev_display": "1161",
+        "entity_prev_desc": "Internal reviewed code (whitelisted)."
       }
     },
     {
@@ -223,8 +226,8 @@
         "category_display": "1161",
         "entity_raw": "",
         "entity_key": "1161",
-        "entity_display": "1161",
-        "entity_desc": "Internal reviewed code (whitelisted).",
+        "entity_display": "AUF1 / 1161",
+        "entity_desc": "AUF1 (also known as 'Auf1') is a far-right online media outlet; '1161' is its internal reviewed code in this dataset.",
         "notes": "",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
@@ -254,7 +257,9 @@
         "snap_prev_lat": 51.95541397936858,
         "snap_prev_lon": 12.895855039894002,
         "snap_prev_method": "gps+snap_walk:footway|avoid_building",
-        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362"
+        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362",
+        "entity_prev_display": "1161",
+        "entity_prev_desc": "Internal reviewed code (whitelisted)."
       }
     }
   ]
