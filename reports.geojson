@@ -147,12 +147,12 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg",
         "name": "sticker AFD 2026-01 present #2297",
-        "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297",
-        "snap_prev_method": "gps+snap_walk:footway",
+        "post_edited_at": "2026-01-26T02:24:44.702Z",
+        "snap_prev_dist_m": 35.5,
         "snap_prev_lat": 53.8503179,
         "snap_prev_lon": 10.6926602,
-        "snap_prev_dist_m": 35.5,
-        "post_edited_at": "2026-01-26T02:24:44.702Z"
+        "snap_prev_method": "gps+snap_walk:footway",
+        "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297"
       }
     },
     {
@@ -250,11 +250,11 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg",
         "name": "sticker 1161 2026-01 present #9362",
-        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362",
-        "snap_prev_method": "gps+snap_walk:footway|avoid_building",
+        "snap_prev_dist_m": 14.1,
         "snap_prev_lat": 51.95541397936858,
         "snap_prev_lon": 12.895855039894002,
-        "snap_prev_dist_m": 14.1
+        "snap_prev_method": "gps+snap_walk:footway|avoid_building",
+        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362"
       }
     }
   ]
