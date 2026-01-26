@@ -55,3 +55,7 @@ trusted_accounts.json
 
 # local backups
 *.bak-*
+
+# local backups
+reports.geojson.backup
+reports.geojson.badjson.backup
