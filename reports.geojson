@@ -106,8 +106,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          10.69232,
-          53.85007
+          10.702717,
+          53.851011
         ]
       },
       "properties": {
@@ -135,10 +135,10 @@
         "last_seen_ym": "2026-01",
         "accuracy_m": 10,
         "radius_m": 10,
-        "geocode_method": "gps",
+        "geocode_method": "post_coords_text",
         "location_text": "53.85007, 10.69232",
-        "lat": 53.85007,
-        "lon": 10.69232,
+        "lat": 53.851011,
+        "lon": 10.702717,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg"
         ],
@@ -151,7 +151,8 @@
         "snap_prev_method": "gps+snap_walk:footway",
         "snap_prev_lat": 53.8503179,
         "snap_prev_lon": 10.6926602,
-        "snap_prev_dist_m": 35.5
+        "snap_prev_dist_m": 35.5,
+        "post_edited_at": "2026-01-26T02:24:44.702Z"
       }
     },
     {
