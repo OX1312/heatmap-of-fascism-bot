@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.11"
+__version__ = "0.2.12"
 import ssl
 import certifi
 import os
@@ -306,13 +306,45 @@ def load_json(path: pathlib.Path, default):
             pass
         return default
 
-def save_json(path: pathlib.Path, data):
-    # Atomic write (avoid partial JSON on crash/restart) + trailing newline
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    tmp.replace(path)
+def save_json(path, obj) -> None:
+    """
+    Atomic JSON write.
+    Important: temp file MUST be unique (launchd overlap can cause .tmp collisions).
+    """
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = json.dumps(obj, ensure_ascii=False, indent=2)
+    if not data.endswith("\n"):
+        data += "\n"
+
+    fd = None
+    tmp_name = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        fd = None
+        os.replace(tmp_name, path)
+        tmp_name = None
+    finally:
+        try:
+            if fd is not None:
+                os.close(fd)
+        except Exception:
+            pass
+        try:
+            if tmp_name:
+                Path(tmp_name).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 def ensure_reports_file():
     if not REPORTS_PATH.exists():
