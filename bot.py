@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 import ssl
 import certifi
 import os
@@ -2507,10 +2507,6 @@ def make_product_feature(
 
             "status": status,
             "sticker_type": sticker_type,
-            "entity_raw": entity_raw,
-            "entity_key": entity_key,
-            "entity_display": entity_display,
-            "entity_desc": entity_desc,
             "notes": notes,
 
             "first_seen": created_date,
@@ -2525,7 +2521,6 @@ def make_product_feature(
 
             "location_text": location_text,
             "media": media,
-            "notes": str(notes or "")
         }
     }
 
@@ -2759,7 +2754,7 @@ def log_line(msg: str) -> None:
 
 
 # === ENTITY_ENRICH_WIKI_START ===
-def _wiki_best_summary(q: str, *, lang: str = "en") -> tuple[str, str]:
+def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = None) -> tuple[str, str]:
     """
     Wikipedia EN lookup:
       - search best title
@@ -2775,7 +2770,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en") -> tuple[str, str]:
 
         # 1) search
         surl = f"https://{lang}.wikipedia.org/w/rest.php/v1/search/title"
-        r = requests.get(surl, params={"q": q, "limit": 1}, timeout=MASTODON_TIMEOUT_S)
+        r = requests.get(surl, params={"q": q, "limit": 1}, headers=headers, timeout=MASTODON_TIMEOUT_S)
         if r.status_code == 429:
             ra = (r.headers or {}).get("Retry-After")
             try:
@@ -2798,7 +2793,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en") -> tuple[str, str]:
         # 2) summary
         t_enc = _quote(title, safe="")
         u2 = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{t_enc}"
-        r2 = requests.get(u2, timeout=MASTODON_TIMEOUT_S)
+        r2 = requests.get(u2, headers=headers, timeout=MASTODON_TIMEOUT_S)
         if r2.status_code != 200:
             return (title, "")
         js2 = r2.json() or {}
@@ -2873,7 +2868,7 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
         if not q:
             continue
 
-        title, summ = _wiki_best_summary(q, lang="en")
+        title, summ = _wiki_best_summary(q, lang="en", user_agent=str(cfg.get("user_agent") or ""))
         if not summ:
             continue
 
@@ -3404,10 +3399,6 @@ def main_once():
 
             "sticker_type": sticker_type,
             "notes": notes,
-            "entity_raw": entity_raw,
-            "entity_key": entity_key,
-            "entity_display": entity_display,
-            "entity_desc": entity_desc,
             "removed_at": removed_at,
 
             "media": media_urls,
