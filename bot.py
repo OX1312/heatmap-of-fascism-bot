@@ -3374,7 +3374,7 @@ def main_once():
         entity_desc = ""
         if isinstance(ent, dict):
             entity_display = str(ent.get("display") or "")
-            entity_desc = str(ent.get("desc") or "")
+            entity_desc = str(ent.get("desc_en") or ent.get("desc") or "")
         geocode_method = "gps"
         accuracy_m = ACC_DEFAULT
         radius_m = ACC_DEFAULT
@@ -3584,6 +3584,12 @@ def main_once():
 
             "sticker_type": sticker_type,
             "notes": notes,
+
+            "entity_raw": entity_raw,
+            "entity_key": entity_key,
+            "entity_display": entity_display,
+            "entity_desc": entity_desc,
+
             "removed_at": removed_at,
 
             "media": media_urls,
@@ -3940,8 +3946,11 @@ def normalize_reports_geojson(reports: dict) -> None:
             ent = entities.get(ek) or {}
             p["needs_verification"] = False
             p["entity_display"] = str(ent.get("display") or "")
-            p["entity_desc"] = str(ent.get("desc") or "")
-            p["category"] = p["entity_display"] or ek
+            p["entity_desc"] = str(ent.get("desc_en") or ent.get("desc") or "")
+            # category: stable key for filtering/search (never long display text)
+            p["category"] = ek
+            # category_display: short UI label (e.g. "AfD")
+            p["category_display"] = p["entity_display"] or ek
         else:
             # keep the raw key for filtering/statistics, but do not assign meaning
             if ek:
