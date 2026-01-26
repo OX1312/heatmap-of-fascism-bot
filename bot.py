@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.6"
+__version__ = "0.2.7"
 import ssl
 import certifi
 import os
@@ -2819,6 +2819,19 @@ def _is_code_category(st: str) -> bool:
     st = (st or "").strip()
     return bool(re.match(r"^auf\d+$", st, flags=re.I))
 
+def _entity_query_normalize(q: str) -> str:
+    q = str(q or "").strip()
+    if not q:
+        return ""
+    # hard-block pure numbers or very short junk
+    if re.fullmatch(r"\d+", q):
+        return ""
+    # common abbrev normalizations (EN Wikipedia-friendly)
+    uq = q.upper().strip()
+    if uq in ("AFD", "A.F.D."):
+        return "Alternative for Germany"
+    return q
+
 def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> int:
     """
     Idle enrichment for published features:
@@ -2852,12 +2865,11 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
         if str(props.get("entity_desc") or "").strip():
             continue
 
-        q = str(props.get("entity_raw") or "").strip()
+        q = _entity_query_normalize(str(props.get("entity_raw") or ""))
         if not q:
             # fallback: use category only if it's not a code-category
             if st and st.lower() != "unknown" and not _is_code_category(st):
-                q = st
-
+                q = _entity_query_normalize(st)
         if not q:
             continue
 
