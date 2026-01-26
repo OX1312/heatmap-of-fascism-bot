@@ -1679,6 +1679,17 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None 
     if r.status_code != 200:
         print(f"hashtag_timeline tag={tag} http={r.status_code} since_id={since_id or '-'} max_id={max_id or '-'}")
 
+    # Rate limit safety: NEVER crash the main loop on 429.
+    if r.status_code == 429:
+        ra = (r.headers or {}).get("Retry-After")
+        try:
+            wait_s = max(1, min(300, int(str(ra).strip()))) if ra else 30
+        except Exception:
+            wait_s = 30
+        print(f"hashtag_timeline tag={tag} http=429 rate_limited wait_s={wait_s}")
+        time.sleep(wait_s)
+        return []
+
     r.raise_for_status()
     data = r.json()
 
@@ -1719,6 +1730,21 @@ def prune_deleted_published(cfg: dict, reports: dict) -> int:
 
     for f in feats:
         props = (f or {}).get("properties") or {}
+        
+        # uMap popup helpers
+        media = props.get("media")
+        if isinstance(media, list) and media:
+            props["media0"] = str(media[0])
+        elif isinstance(media, str) and media:
+            props["media0"] = media
+        else:
+            props["media0"] = ""
+
+        # Optional aliases (so template can use Identity wording)
+        if "identity_display" not in props:
+            props["identity_display"] = (props.get("entity_display") or "")
+        if "identity_desc" not in props:
+            props["identity_desc"] = (props.get("entity_desc") or "")
         status_id = str(props.get("status_id") or "")
 
         # fallback: derive from "masto-<digits>"
@@ -2226,18 +2252,6 @@ def delete_status(cfg: Dict[str, Any], status_id: str) -> bool:
         if r.status_code in (200, 202, 204, 404, 410):
             return True
         return False
-    except Exception:
-        return False
-
-
-def delete_status(cfg: dict, status_id: str) -> bool:
-    """Best-effort delete of a bot status. Ignore failures (federation, perms)."""
-    try:
-        instance = cfg["instance_url"].rstrip("/")
-        url = f"{instance}/api/v1/statuses/{status_id}"
-        headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-        r = requests.delete(url, headers=headers, timeout=MASTODON_TIMEOUT_S)
-        return r.status_code in (200, 202)
     except Exception:
         return False
 
