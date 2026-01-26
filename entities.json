@@ -1,37 +1,14 @@
 {
+  "AFD": {
+    "display": "Alternative for Germany",
+    "desc": "Far-right political party in Germany."
+  },
   "auf1": {
     "display": "AUF1",
-    "desc": "Austrian far-right media platform",
-    "aliases": [
-      "AUF1",
-      "Auf1",
-      "auf 1",
-      "auf-1",
-      "AUF-1"
-    ],
-    "wiki_de": "AUF1",
-    "qid": "Q115816343"
+    "desc": "A far-right Austrian media outlet (online TV / YouTube-style channel)."
   },
-  "nius": {
-    "display": "NiUS",
-    "desc": "German right-wing populist news platform",
-    "aliases": [
-      "NIUS",
-      "Nius",
-      "NiUS",
-      "nius"
-    ],
-    "wiki_de": "Nius",
-    "qid": "Q120979051"
-  },
-  "anti_antifa": {
-    "display": "Anti-Antifa",
-    "aliases": [
-      "Anti Antifa",
-      "ANTI ANTIFA",
-      "anti antifa"
-    ],
-    "desc": "Slogan used by far-right groups opposing anti-fascist activism; often framed as resistance to “Antifa”.",
-    "wiki_en": "Anti-Antifa"
+  "1161": {
+    "display": "1161",
+    "desc": "Internal reviewed code (whitelisted)."
   }
 }
