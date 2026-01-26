@@ -159,5 +159,69 @@
       "en"
     ],
     "retrieved": "2026-01-26"
+  },
+  {
+    "id": "auf1-wiki-de",
+    "title": "Wikipedia (DE): AUF1",
+    "url": "https://de.wikipedia.org/wiki/AUF1",
+    "type": "encyclopedia",
+    "scope": [
+      "background",
+      "operators",
+      "timeline"
+    ],
+    "tags": [
+      "de",
+      "reference"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "auf1-wiki-en",
+    "title": "Wikipedia (EN): AUF1 (channel)",
+    "url": "https://en.wikipedia.org/wiki/AUF1_(channel)",
+    "type": "encyclopedia",
+    "scope": [
+      "background",
+      "operators",
+      "timeline"
+    ],
+    "tags": [
+      "en",
+      "reference"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "kommaustria-auf1tv-2023-05-17",
+    "title": "KommAustria / RTR (AT): AUF1TV sendete ohne Zulassung (Bescheid + Kontext)",
+    "url": "https://www.rtr.at/medien/aktuelles/publikationen/Newsletter/Newsletter_2023/02/Bescheid_AUF1TV_Sendung_ohne_Zulassung.html",
+    "type": "official_notice",
+    "scope": [
+      "regulatory",
+      "broadcasting"
+    ],
+    "tags": [
+      "official",
+      "at",
+      "de"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "tagesschau-auf1-desinformation",
+    "title": "tagesschau.de: Sender AUF1 – Desinformationen ohne Lizenz?",
+    "url": "https://www.tagesschau.de/faktenfinder/auf1-tv-101.html",
+    "type": "journalism",
+    "scope": [
+      "media_report",
+      "licensing",
+      "claims"
+    ],
+    "tags": [
+      "journalism",
+      "de"
+    ],
+    "retrieved": "2026-01-26"
   }
 ]

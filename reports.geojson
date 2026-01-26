@@ -71,8 +71,8 @@
         "category_display": "AUF1",
         "entity_raw": "",
         "entity_key": "auf1",
-        "entity_display": "AUF1",
-        "entity_desc": "A far-right Austrian media outlet (online TV / YouTube-style channel).",
+        "entity_display": "AUF1 (Alternatives Unabhängiges Fernsehen, Kanal 1)",
+        "entity_desc": "DE: AUF1 (»Alternatives Unabhängiges Fernsehen, Kanal 1«) ist eine österreichische Online-Medienplattform / Website. In öffentlichen Referenz- und Medienquellen wird AUF1 u. a. im Kontext von Desinformation/Verschwörungserzählungen sowie regulatorischen Fragen zur Ausstrahlung ohne Zulassung beschrieben. (Quellen: auf1-wiki-de; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)\nEN: AUF1 (\"Alternative Independent Television, Channel 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)",
         "notes": "",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
@@ -93,7 +93,7 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/951/396/926/838/171/original/22e1ea4ba2432527.jpg"
         ],
-        "category": "AUF1",
+        "category": "AUF1 (Alternatives Unabhängiges Fernsehen, Kanal 1)",
         "description": "kind=sticker\ncat=auf1\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951397353469503",
         "identity_desc": "",
         "identity_display": "",
