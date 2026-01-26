@@ -59,3 +59,7 @@ trusted_accounts.json
 # local backups
 reports.geojson.backup
 reports.geojson.badjson.backup
+
+# manager notify state
+.manager_daily_state.json
+.manager_last_update.txt
