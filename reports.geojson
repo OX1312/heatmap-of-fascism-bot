@@ -48,9 +48,9 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/951/200/700/979/490/original/64dbe658c21bd8f2.jpg",
         "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
+        "needs_verification": true,
         "stale_after_days": 30,
-        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111",
-        "needs_verification": true
+        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111"
       }
     },
     {
@@ -69,10 +69,10 @@
         "instance_url": "https://mastodon.social",
         "status": "present",
         "sticker_type": "auf1",
-        "category_display": "AUF1 (Alternatives Unabhängiges Fernsehen, Kanal 1)",
+        "category_display": "AUF1",
         "entity_raw": "",
         "entity_key": "auf1",
-        "entity_display": "AUF1 (Alternatives Unabhängiges Fernsehen, Kanal 1)",
+        "entity_display": "AUF1",
         "entity_desc": "AUF1 (German original: \"Alternatives Unabhängiges Fernsehen, Kanal 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-de; auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)",
         "notes": "",
         "first_seen": "2026-01-24",
@@ -100,6 +100,7 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/951/396/926/838/171/original/22e1ea4ba2432527.jpg",
         "name": "sticker auf1 2026-01 present #9503",
+        "needs_verification": false,
         "stale_after_days": 30,
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951397353469503"
       }
@@ -152,6 +153,7 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg",
         "name": "sticker AFD 2026-01 present #2297",
+        "needs_verification": false,
         "post_edited_at": "2026-01-26T02:24:44.702Z",
         "snap_prev_dist_m": 35.5,
         "snap_prev_lat": 53.8503179,
@@ -209,6 +211,7 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg",
         "name": "sticker 1161 2026-01 present #5370",
+        "needs_verification": false,
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956523282215370"
       }
     },
@@ -261,6 +264,7 @@
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg",
         "name": "sticker 1161 2026-01 present #9362",
+        "needs_verification": false,
         "snap_prev_dist_m": 14.1,
         "snap_prev_lat": 51.95541397936858,
         "snap_prev_lon": 12.895855039894002,
