@@ -71,3 +71,16 @@ More: `docs/ROADMAP.md`
 
 ## Developer setup
 See `docs/DEVELOPERS.md`
+    ## Major update and roadmap (Version 1.0)
+
+    The upcoming v1.0 release addresses data consistency, workflow automation and expansion beyond stickers. A detailed plan is documented in `docs/major_update_roadmap.md`.
+
+    Key points:
+    - **Alias handling**: synonyms and typos map to a single category.
+    - **Data check**: run `python tools/check_data.py` to detect missing fields, invalid coordinates and duplicates.
+    - **Data fix**: run `python tools/fix_data.py` to fill missing descriptions, remove invalid entries and merge duplicates. The original file is backed up automatically.
+    - **Extended schema**: support for graffiti and multi-category features.
+    - **Moderation tooling**: introduces a pending-review dashboard (CLI or web) for efficient validation of reports.
+    - **CI/CD**: automated tests and data validation on each commit.
+
+    See the roadmap document for more details.
