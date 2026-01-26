@@ -136,7 +136,7 @@
         "accuracy_m": 10,
         "radius_m": 10,
         "geocode_method": "post_coords_text",
-        "location_text": "53.85007, 10.69232",
+        "location_text": "53.851011, 10.702717",
         "lat": 53.851011,
         "lon": 10.702717,
         "media": [
