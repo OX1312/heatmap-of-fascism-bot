@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 import ssl
 import certifi
 import os
@@ -2838,25 +2838,25 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
     if not feats:
         return 0
 
-    changed = 0
+    changed_ui = 0
+    changed_entity = 0
     budget = max(0, int(max_per_run))
 
     for f in feats:
-        if budget and changed >= budget:
-            break
         props = (f or {}).get("properties") or {}
 
-        # category_display (UI only)
+        # category_display (UI only) — does NOT consume entity budget
         st = str(props.get("sticker_type") or "").strip()
         if st:
             cd = st.upper() if _is_code_category(st) else st
             if str(props.get("category_display") or "") != cd:
                 props["category_display"] = cd
-                changed += 1
-                if budget and changed >= budget:
-                    break
+                changed_ui += 1
 
-        # entity enrichment
+        # entity enrichment (budgeted)
+        if budget and changed_entity >= budget:
+            continue
+
         if str(props.get("entity_desc") or "").strip():
             continue
 
@@ -2865,6 +2865,7 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
             # fallback: use category only if it's not a code-category
             if st and st.lower() != "unknown" and not _is_code_category(st):
                 q = _entity_query_normalize(st)
+
         if not q:
             continue
 
@@ -2875,9 +2876,12 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
         if title and not str(props.get("entity_display") or "").strip():
             props["entity_display"] = title
         props["entity_desc"] = summ
-        changed += 1
+        changed_entity += 1
 
-    return int(changed)
+    if (changed_ui or changed_entity):
+        log_line(f"entity_enrich ui={changed_ui} entity={changed_entity}")
+
+    return int(changed_ui + changed_entity)
 # === ENTITY_ENRICH_WIKI_END ===
 
 def main_once():
