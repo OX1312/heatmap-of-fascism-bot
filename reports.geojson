@@ -20,8 +20,8 @@
         "category_display": "FCK NWO FCK GRN",
         "entity_raw": "",
         "entity_key": "",
-        "entity_display": "",
-        "entity_desc": "",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
         "notes": "",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
@@ -42,14 +42,15 @@
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/951/200/700/979/490/original/64dbe658c21bd8f2.jpg"
         ],
-        "category": "FCK NWO FCK GRN",
+        "category": "Unknown",
         "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111",
         "identity_desc": "",
         "identity_display": "",
         "media0": "https://files.mastodon.social/media_attachments/files/115/951/200/700/979/490/original/64dbe658c21bd8f2.jpg",
         "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
         "stale_after_days": 30,
-        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111"
+        "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111",
+        "needs_verification": true
       }
     },
     {
