@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "0.2.10"
+__version__ = "0.2.11"
 import ssl
 import certifi
 import os
@@ -2780,17 +2780,19 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
     q = (q or "").strip()
     if not q:
         return ("", "")
+
+    # ALWAYS define headers (prevents NameError)
+    ua = (str(user_agent).strip() if user_agent else "HeatmapOfFascismBot")
+    headers = {"User-Agent": ua}
+
     try:
         import time as _time
         from urllib.parse import quote as _quote
 
-        headers = {
-            "User-Agent": (str(user_agent).strip() if user_agent else "HeatmapOfFascismBot")
-        }
-
         # 1) search
         surl = f"https://{lang}.wikipedia.org/w/rest.php/v1/search/title"
         r = requests.get(surl, params={"q": q, "limit": 1}, headers=headers, timeout=MASTODON_TIMEOUT_S)
+
         if r.status_code == 429:
             ra = (r.headers or {}).get("Retry-After")
             try:
@@ -2800,6 +2802,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
             print(f"wiki_search http=429 rate_limited wait_s={wait_s}")
             _time.sleep(wait_s)
             return ("", "")
+
         if r.status_code != 200:
             print(f"wiki_search http={r.status_code} q={q!r}")
             return ("", "")
@@ -2808,6 +2811,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         pages = js.get("pages") or []
         if not pages or not isinstance(pages, list):
             return ("", "")
+
         title = str((pages[0] or {}).get("title") or "").strip()
         if not title:
             return ("", "")
@@ -2819,6 +2823,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         if r2.status_code != 200:
             print(f"wiki_summary http={r2.status_code} title={title!r}")
             return (title, "")
+
         js2 = r2.json() or {}
         extract = str(js2.get("extract") or "").strip()
         if not extract:
@@ -2830,6 +2835,7 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         if len(out) > 420:
             out = out[:417].rstrip() + "..."
         return (title, out)
+
     except Exception as e:
         print(f"wiki_error err={e!r}")
         return ("", "")
