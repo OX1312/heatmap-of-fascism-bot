@@ -1,0 +1,163 @@
+[
+  {
+    "id": "wiki-rightwing-symbols-de",
+    "title": "Wikipedia (DE): Rechtsextreme Symbole und Zeichen",
+    "url": "https://de.wikipedia.org/wiki/Rechtsextreme_Symbole_und_Zeichen",
+    "type": "encyclopedia",
+    "scope": [
+      "codes",
+      "symbols",
+      "glossary"
+    ],
+    "tags": [
+      "de",
+      "symbols",
+      "codes"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "bige-codes-de",
+    "title": "Bayerische Informationsstelle gegen Extremismus: Codes (Buchstaben- und Zahlencodes)",
+    "url": "https://www.bige.bayern.de/infos_zu_extremismus/rechtsextremismus/zeichen_und_symbole/codes/",
+    "type": "official_info",
+    "scope": [
+      "codes",
+      "symbols"
+    ],
+    "tags": [
+      "de",
+      "official",
+      "codes"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "bfv-symbols-en-pdf",
+    "title": "German domestic intelligence (BfV): Right-wing extremism – symbols and organisations (EN PDF)",
+    "url": "https://www.verfassungsschutz.de/SharedDocs/publikationen/EN/right-wing-extremism/2022-07-right-wing-extremism-symbols-and-organisations.pdf",
+    "type": "official_publication",
+    "scope": [
+      "symbols",
+      "organizations"
+    ],
+    "tags": [
+      "official",
+      "symbols",
+      "pdf",
+      "en"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "klicksafe-rightwing",
+    "title": "klicksafe: Rechtsextremismus online",
+    "url": "https://www.klicksafe.eu/de/themen/rechtsextremismus",
+    "type": "education",
+    "scope": [
+      "online",
+      "codes",
+      "symbols"
+    ],
+    "tags": [
+      "de",
+      "education"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "adl-hate-symbols",
+    "title": "ADL: Hate on Display™ – Hate Symbols Database",
+    "url": "https://www.adl.org/resources/hate-symbols/search",
+    "type": "database",
+    "scope": [
+      "symbols",
+      "codes",
+      "logos"
+    ],
+    "tags": [
+      "database",
+      "symbols",
+      "en"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "global-extremism-symbols-db",
+    "title": "Global Extremism: Global Extremist Symbols Database",
+    "url": "https://globalextremism.org/global-extremist-symbols-database/",
+    "type": "database",
+    "scope": [
+      "symbols",
+      "global"
+    ],
+    "tags": [
+      "database",
+      "symbols",
+      "en"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "dp-rex",
+    "title": "Datenportal Rechtsextremismusforschung (DP-R|EX)",
+    "url": "https://datenportal-rechtsextremismus.de/",
+    "type": "research_portal",
+    "scope": [
+      "research",
+      "datasets",
+      "literature"
+    ],
+    "tags": [
+      "research",
+      "de"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "leibniz-hbi-data-portal-rwe",
+    "title": "Leibniz HBI: Data Portal Right-Wing Extremism",
+    "url": "https://leibniz-hbi.de/en/hbi-projects/data-portal-right-wing-extremism/",
+    "type": "research_portal",
+    "scope": [
+      "research",
+      "datasets"
+    ],
+    "tags": [
+      "research",
+      "en"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "komrex-jena",
+    "title": "KomRex (University of Jena): Research on Right-Wing Extremism",
+    "url": "https://www.komrex.uni-jena.de/en",
+    "type": "academic_institute",
+    "scope": [
+      "research",
+      "publications"
+    ],
+    "tags": [
+      "research",
+      "en",
+      "de"
+    ],
+    "retrieved": "2026-01-26"
+  },
+  {
+    "id": "irex-tuebingen",
+    "title": "University of Tübingen: Institute for Research on Far Right Extremism (IRex)",
+    "url": "https://uni-tuebingen.de/en/faculties/faculty-of-economics-and-social-sciences/subjects/department-of-social-sciences/research-on-far-right-extremism/",
+    "type": "academic_institute",
+    "scope": [
+      "research",
+      "publications"
+    ],
+    "tags": [
+      "research",
+      "en"
+    ],
+    "retrieved": "2026-01-26"
+  }
+]

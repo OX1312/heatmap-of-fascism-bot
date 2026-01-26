@@ -84,3 +84,29 @@ See `docs/DEVELOPERS.md`
     - **CI/CD**: automated tests and data validation on each commit.
 
     See the roadmap document for more details.
+
+## Version 1.0 (major update)
+
+This release focuses on **data consistency**, **workflow automation**, and **multi-category support** (stickers + graffiti).
+
+Key points:
+- **Safe alias handling**: only spelling variants map to the *same* entity (never merge different organizations/parties).
+- **Data check**: `python3 tools/check_data.py` validates required fields, coordinates, duplicates.
+- **Data fix (deterministic only)**: `python3 tools/fix_data.py` normalizes formats and fills missing report fields from `entities.json` (never invents meanings).
+- **Extended schema**: supports graffiti and multi-category features.
+- **Moderation tooling**: pending-review workflow (CLI/web) for efficient validation.
+- **CI/CD**: automated tests and data validation on each commit.
+- **No self-modifying loops by default**: background entity enrichment is disabled to avoid unintended changes.
+
+### Sources database (curated)
+We maintain a curated sources list in:
+- `docs/sources.json`
+
+Rules:
+- `entities.json` is the **single source of truth** for `display` and `desc`.
+- Automated tooling must **never overwrite** curated `display/desc`.
+- If enrichment is enabled later, it may only write to separate *auto* fields (e.g. `desc_en_auto`) or set `needs_desc=true`.
+
+See also:
+- `docs/DEVELOPERS.md`
+- `docs/major_update_roadmap.md`

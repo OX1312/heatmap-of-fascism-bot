@@ -53,3 +53,22 @@ Abschließende Hinweise
 	•	Beteiligung mehrerer Personen: Ziehe weitere Maintainer hinzu, damit Code‑Reviews stattfinden können und der Bus Factor sinkt.
 
 Mit dieser Roadmap wird das Projekt strukturiert professionalisiert: Die Datenbasis wird korrekt und evidenzbasiert, der Workflow effizienter, die Moderation einfacher und die Plattform robuster.
+
+## Sources database (docs/sources.json)
+
+We introduce a curated **sources database** at `docs/sources.json`.
+It is used as a *trusted starting point* for research and future enrichment tooling.
+
+Rules:
+- `entities.json` stays the **single source of truth** for user-facing names/meaning.
+- The bot must **never overwrite** curated `display/desc` fields automatically.
+- Automated enrichment (if enabled later) may only write to separate *auto* fields (e.g. `desc_en_auto`) or add `needs_desc=true`, never to `desc`.
+
+Scope:
+- Official publications (e.g. domestic intelligence / media authorities)
+- Reputable research portals and academic institutes
+- Reputable symbol/code databases (international)
+- Wikipedia as a **starting reference**, never as the only source for contested claims
+
+File format:
+- list of objects with `id`, `title`, `url`, `type`, `scope`, `tags`, `retrieved`
