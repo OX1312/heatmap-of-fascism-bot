@@ -28,6 +28,8 @@ compile_py      – "$REPO/.venv/bin/python" -m py_compile bot.py
 git_status      – git status
 git_diff        – git diff --stat
 py_dir          – zeigt plist python + workingdir
+data_check      – validate reports.geojson (missing fields, coords, duplicates)
+data_fix        – fix reports.geojson (fills desc, drops invalid, dedupe, backup)
 TXT
 }
 
@@ -120,6 +122,12 @@ PY2
     tail -n 30 "logs/normal-$d.log" 2>/dev/null || tail -n 30 "normal-$d.log" 2>/dev/null || echo "(no normal log found)"
     ;;
 
+  data_check)
+    "$REPO/.venv/bin/python" tools/check_data.py --reports reports.geojson --entities entities.json
+    ;;
+  data_fix)
+    "$REPO/.venv/bin/python" tools/fix_data.py --reports reports.geojson --entities entities.json
+    ;;
   *)
     echo "unknown command: $cmd"
     help_msg
