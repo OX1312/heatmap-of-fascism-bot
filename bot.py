@@ -2572,6 +2572,104 @@ def make_product_feature(
         }
     }
 
+
+
+# =========================
+# MANAGER NOTIFY (UPDATES + DAILY SUMMARY)
+# =========================
+
+def _load_manager_accounts(cfg: dict) -> list[str]:
+    accts = []
+    try:
+        accts = list(cfg.get("manager_accounts") or [])
+    except Exception:
+        accts = []
+    accts = [str(a).strip() for a in accts if str(a).strip()]
+    return accts
+
+def _manager_notify_update_once(mastodon, cfg: dict, version_str: str) -> None:
+    if not bool(cfg.get("manager_notify_updates", True)):
+        return
+    try:
+        state_path = ROOT / ".manager_last_update.txt"
+        head = ""
+        try:
+            import subprocess
+            r = subprocess.run(["git","rev-parse","--short","HEAD"], capture_output=True, text=True)
+            if r.returncode == 0:
+                head = (r.stdout or "").strip()
+        except Exception:
+            head = ""
+
+        token = f"{version_str}|{head}".strip("|")
+        last = ""
+        try:
+            last = state_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            last = ""
+        if token and token == last:
+            return
+
+        accts = _load_manager_accounts(cfg)
+        if not accts:
+            log_line("manager_notify SKIP reason=no_manager_accounts")
+            if token:
+                state_path.write_text(token, encoding="utf-8")
+            return
+
+        mention = " ".join([a if a.startswith("@") else "@"+a for a in accts])
+        msg = f"🤖 🚀 Update deployed: v={version_str} (head={head or 'n/a'}).\\nKey change: verify-or-unknown policy (no guessing)."
+        content = f"{mention}\\n{msg}"
+
+        try:
+            mastodon.status_post(content, visibility="direct")
+            log_line(f"manager_notify OK kind=update managers={len(accts)} token={token}")
+        except Exception as e:
+            log_line(f"manager_notify ERROR kind=update err={e!r}")
+
+        if token:
+            state_path.write_text(token, encoding="utf-8")
+    except Exception as e:
+        log_line(f"manager_notify ERROR kind=update outer_err={e!r}")
+
+def _manager_daily_summary_if_changed(mastodon, cfg: dict, *, added: int, published: int, pending_left: int, version_str: str) -> None:
+    if not bool(cfg.get("manager_daily_summary", True)):
+        return
+    try:
+        state_path = ROOT / ".manager_daily_state.json"
+        prev = {}
+        try:
+            import json
+            prev = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            prev = {}
+        cur = {"added": int(added), "published": int(published), "pending_left": int(pending_left)}
+        if prev == cur:
+            return
+
+        accts = _load_manager_accounts(cfg)
+        if not accts:
+            log_line("manager_summary SKIP reason=no_manager_accounts")
+            state_path.write_text(__import__("json").dumps(cur), encoding="utf-8")
+            return
+
+        mention = " ".join([a if a.startswith("@") else "@"+a for a in accts])
+        msg = (
+            f"🤖 🚀 Daily summary (only on change)\\n"
+            f"v={version_str}\\n"
+            f"added={cur['added']} | published={cur['published']} | pending_left={cur['pending_left']}"
+        )
+        content = f"{mention}\\n{msg}"
+        try:
+            mastodon.status_post(content, visibility="direct")
+            log_line(f"manager_summary OK managers={len(accts)} {cur}")
+        except Exception as e:
+            log_line(f"manager_summary ERROR err={e!r}")
+
+        state_path.write_text(__import__("json").dumps(cur), encoding="utf-8")
+    except Exception as e:
+        log_line(f"manager_summary ERROR outer_err={e!r}")
+
 # =========================
 # MAIN
 # =========================
@@ -3694,6 +3792,20 @@ def main_once():
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     log_line(f"Added pending: {added_pending} | Pending left: {len(still_pending)} | Published: {published}")
+    # Manager notify (direct): update once + daily summary only on change
+    try:
+        _manager_notify_update_once(mastodon, cfg, __version__)
+        _manager_daily_summary_if_changed(
+            mastodon,
+            cfg,
+            added=int(added_pending),
+            published=int(published),
+            pending_left=int(len(still_pending)),
+            version_str=__version__,
+        )
+    except Exception as e:
+        log_line(f"manager_notify ERROR err={e!r}")
+
 
     return {
         'added_pending': int(added_pending),
