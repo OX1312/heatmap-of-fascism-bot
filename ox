@@ -11,25 +11,40 @@ today() { date +%F; }
 
 help_msg() {
   cat <<'TXT'
-h               – help (kurz)
-bot_status      – läuft? (launchctl list)
-bot_start       – start (bootstrap)
-bot_stop        – stop (bootout)
-bot_restart     – restart (stop+start)
-test_run        – sofortlauf (kickstart)
-bot_version     – version + modes (+ git hash)
-test_report     – test_mode status
-auto_report     – auto_push_reports status
-log_launchd     – tail bot.launchd.log
-log_normal      – tail logs/normal-YYYY-MM-DD.log
-log_event       – tail logs/event-YYYY-MM-DD.log
-show_errors     – fehler grep (heute)
-compile_py      – "$REPO/.venv/bin/python" -m py_compile bot.py
-git_status      – git status
-git_diff        – git diff --stat
-py_dir          – zeigt plist python + workingdir
-data_check      – validate reports.geojson (missing fields, coords, duplicates)
-data_fix        – fix reports.geojson (fills desc, drops invalid, dedupe, backup)
+OX Heatmap Bot Ops
+
+Core
+  h               – help
+  online          – quick live check (config + last RUN/START/ERROR + normal tail)
+
+Service (launchd)
+  bot_status      – launchctl list (is it registered?)
+  bot_start       – start (bootstrap)
+  bot_stop        – stop (bootout)
+  bot_restart     – restart (stop+start)
+  server_restart  – reboot machine (safe +1min, cancelable)
+
+Run / Modes
+  test_run        – run once now (kickstart)
+  bot_version     – version + modes (+ git hash)
+  test_report     – test_mode status
+  auto_report     – auto_push_reports status
+
+Logs (live)
+  monitor         – LIVE: bot work + hourly + key ticks + errors (merged)
+  monitor_errors  – LIVE: errors only (merged)
+  log_launchd     – tail bot.launchd.log
+  log_normal      – tail logs/normal-YYYY-MM-DD.log
+  log_event       – tail logs/event-YYYY-MM-DD.log
+  show_errors     – grep errors (today snapshot)
+
+Dev / Data
+  compile_py      – py_compile bot.py
+  git_status      – git status
+  git_diff        – git diff --stat
+  py_dir          – plist python + workingdir
+  data_check      – validate reports.geojson (missing fields, coords, duplicates)
+  data_fix        – fix reports.geojson (fills desc, drops invalid, dedupe, backup)
 TXT
 }
 
@@ -43,6 +58,16 @@ case "$cmd" in
   bot_restart)
     launchctl bootout  "gui/$(id -u)" "$PLIST" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
+
+    echo "🚀 Bot restart completed successfully"
+    ;;
+
+  server_restart)
+    ts="$(TZ=Europe/Berlin date +%FT%T%z)"
+    msg="SERVER RESTART INITIATED | reason=maintenance | scheduled=+1min | cancel: sudo /sbin/shutdown -c"
+    printf "%s %s\n" "$ts" "$msg" >> bot.launchd.log
+    echo "⚠️ $msg"
+    sudo /sbin/shutdown -r +1 "ox server_restart"
     ;;
   test_run)    "$REPO/.venv/bin/python" -u "$REPO/bot.py" --once ;;
 
@@ -89,6 +114,46 @@ PY
   log_launchd) tail -n 120 -F bot.launchd.log ;;
   log_normal)  f="logs/normal-$(today).log"; [ -f "$f" ] || f="normal-$(today).log"; tail -n 200 -F "$f" ;;
   log_event)   f="logs/event-$(today).log";  [ -f "$f" ] || f="event-$(today).log";  tail -n 200 -F "$f" ;;
+  monitor)
+    # Foreground + fullscreen (only if not already fullscreen)
+    osascript >/dev/null 2>&1 <<'OSA' || true
+tell application "Terminal" to activate
+delay 0.05
+tell application "System Events"
+  tell process "Terminal"
+    try
+      set isFS to value of attribute "AXFullScreen" of front window
+    on error
+      set isFS to false
+    end try
+    if isFS is false then
+      keystroke "f" using {control down, command down}
+    end if
+  end tell
+end tell
+OSA
+
+    # Fullscreen the Terminal window (toggle). If it's already fullscreen, this will toggle back.
+    osascript -e 'tell application "Terminal" to activate' >/dev/null 2>&1 || true
+    osascript -e 'tell application "System Events" to keystroke "f" using {control down, command down}' >/dev/null 2>&1 || true
+    d=$(TZ=Europe/Berlin date +%F)
+    n="logs/normal-$d.log"; [ -f "$n" ] || n="normal-$d.log"
+    e="logs/event-$d.log";  [ -f "$e" ] || e="event-$d.log"
+    l="bot.launchd.log"
+    # Merged live view: work + hourly + key ticks + errors
+    tail -n 0 -F "$n" "$e" "$l" 2>/dev/null | grep --line-buffered -i \
+      '(HOURLY|RUNNING|START|SUMMARY|SUBMISSION|REVIEWED|PUBLISHED|PENDING|fav_check|verify_deleted|VERIFY_DELETED|hashtag_timeline|rate_limited|http=429|ERROR|WARN|FAILED|Exception|Traceback|\b(401|403|404|410|429)\b|\b5[0-9]{2}\b|timeout)' || true
+    ;;
+
+  monitor_errors)
+    d=$(TZ=Europe/Berlin date +%F)
+    n="logs/normal-$d.log"; [ -f "$n" ] || n="normal-$d.log"
+    e="logs/event-$d.log";  [ -f "$e" ] || e="event-$d.log"
+    l="bot.launchd.log"
+    # Errors-only live view
+    tail -n 0 -F "$n" "$e" "$l" 2>/dev/null | grep --line-buffered -i \
+      '(ERROR|WARN|FAILED|Exception|Traceback|\b(401|403|404|410|429)\b|\b5[0-9]{2}\b|timeout|rate_limited|http=429)' || true
+    ;;
   show_errors)
     pat="(ERROR|WARN|FAILED|Exception|Traceback|\b(401|403|404|410|429)\b|\b5[0-9]{2}\b|timeout)"
     for f in "logs/normal-$(today).log" "logs/event-$(today).log" "bot.launchd.log" "normal-$(today).log" "event-$(today).log"; do
@@ -106,20 +171,27 @@ PY
     ;;
   online)
     cd "$REPO" || exit 1
+    d=$(TZ=Europe/Berlin date +%F)
+    n="logs/normal-$d.log"; [ -f "$n" ] || n="normal-$d.log"
+
+    echo "— launchd:"
+    launchctl list | grep -i heatmap || true
+
     echo "— config:"
-    python3 - <<'PY2'
+    "$REPO/.venv/bin/python" - <<'PY2'
 import json
 from pathlib import Path
 cfg = json.loads(Path("config.json").read_text(encoding="utf-8"))
-keys = ["test_mode","auto_push_reports","user_agent"]
-for k in keys:
+for k in ["test_mode","auto_push_reports","user_agent"]:
     print(f"{k}={cfg.get(k)}")
 PY2
-    echo "— launchd (last RUN/START/ERROR):"
-    tail -n 200 bot.launchd.log 2>/dev/null | egrep "START| RUN |ERROR" | tail -n 5 || true
-    echo "— normal log (tail):"
-    d=$(TZ=Europe/Berlin date +%F)
-    tail -n 30 "logs/normal-$d.log" 2>/dev/null || tail -n 30 "normal-$d.log" 2>/dev/null || echo "(no normal log found)"
+
+    echo "— last activity (normal):"
+    if [ -f "$n" ]; then
+      egrep -n 'HOURLY|hashtag_timeline|reply OK|VERIFY_DELETED|SUMMARY|ERROR \| auto_push' "$n" | tail -n 20 || true
+    else
+      echo "(no normal log found)"
+    fi
     ;;
 
   data_check)

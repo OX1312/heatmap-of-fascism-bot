@@ -63,3 +63,22 @@ reports.geojson.badjson.backup
 # manager notify state
 .manager_daily_state.json
 .manager_last_update.txt
+
+# local backups / artifacts
+bot.py.bak*
+ox.bak*
+*.bak.*
+bot.launchd.log.bak*
+de.ox.heatmap-bot
+tail
+
+# local backups / artifacts
+bot.py.bak*
+ox.bak*
+*.bak.*
+bot.launchd.log.bak*
+de.ox.heatmap-bot
+tail
+
+# stray artifacts
+1

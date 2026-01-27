@@ -78,6 +78,34 @@ _LOG_DATE = datetime.now(_LOG_TZ).strftime("%Y-%m-%d")
 
 NORMAL_LOG_PATH = LOG_DIR / f"normal-{_LOG_DATE}.log"
 EVENT_LOG_PATH  = LOG_DIR / f"event-{_LOG_DATE}.log"
+
+BOOT_MARKER_PATH = LOG_DIR / "_boot_marker.txt"
+
+def _boot_sec() -> int | None:
+    """Return kernel boot time (sec since epoch) or None."""
+    try:
+        import subprocess, re as _re
+        out = subprocess.check_output(["/usr/sbin/sysctl", "-n", "kern.boottime"], text=True).strip()
+        mm = _re.search(r"sec\s*=\s*(\d+)", out)
+        return int(mm.group(1)) if mm else None
+    except Exception:
+        return None
+
+def _server_online_banner_once() -> None:
+    """Emit one SERVER ONLINE line per host boot (no spam)."""
+    try:
+        b = _boot_sec()
+        if not b:
+            return
+        prev = None
+        if BOOT_MARKER_PATH.exists():
+            prev = BOOT_MARKER_PATH.read_text(encoding="utf-8").strip() or None
+        if prev == str(b):
+            return
+        BOOT_MARKER_PATH.write_text(str(b), encoding="utf-8")
+        log_line(f"SERVER ONLINE | Version {__version__} | boot={b}")
+    except Exception:
+        return
 EVENT_STATE_PATH = LOG_DIR / "event_state.json"
 ERROR_LOG_PATH = ERRORS_DIR / f"errors-{_LOG_DATE}.log"
 
@@ -2824,6 +2852,7 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
                 save_json(TIMELINE_STATE_PATH, st_state)
         else:
             statuses = get_hashtag_timeline(cfg, tag_key, since_id=since_id, limit=40)
+
             # update since_id to newest id in this batch
             newest = None
             for it in statuses:
@@ -3201,11 +3230,9 @@ def main_once():
     server_state = "TEST" if test_mode else "LIVE"
     import_mode = "AUTO" if auto_mode else "MANUAL"
     push_mode = "AUTO" if bool(cfg.get("auto_push_reports")) else "MANUAL"
+    run_date = today_iso()
     if not globals().get('_RUNNING_BANNER_SENT', False):
         globals()['_RUNNING_BANNER_SENT'] = True
-        run_date = today_iso()
-    log_hourly("STATUS", f"HOURLY {run_date} | Version {__version__} | SERVER {server_state} | INPUT {import_mode} | PUSHMODE {push_mode}")
-    # If auto_mode is ON and reports.geojson is already dirty from earlier runs, push once.
     auto_git_push_reports(cfg, reason="startup_flush")
 
 
@@ -3949,12 +3976,21 @@ def main_once():
 
 
 def main():
+    # --- DEBUG: faulthandler dump on SIGUSR1 ---
+    import faulthandler, signal
+    faulthandler.enable(all_threads=True)
+    try:
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    except Exception:
+        pass
+
     # Adaptive polling:
     # - fast when there is PENDING work
     # - backoff when idle
     stages = [2, 4, 8, 15, 30]  # seconds
     idle_i = 0
     print(f"START Version {__version__}")
+    _server_online_banner_once()
 
     while True:
         stats = None
@@ -3996,6 +4032,17 @@ def main():
         else:
             idle_i = min(idle_i + 1, len(stages) - 1)
             sleep_s = stages[idle_i]
+
+        # --- HEARTBEAT (throttled) ---
+        try:
+            _hb_every = 600  # seconds
+            _now = time.time()
+            _last = float(globals().get("_HB_TS", 0.0) or 0.0)
+            if pending_left > 0 or did_work or (_now - _last) >= _hb_every:
+                globals()["_HB_TS"] = _now
+                log_line(f"RUNNING | sleep={int(sleep_s)}s | pending_left={pending_left} | did_work={int(bool(did_work))}")
+        except Exception:
+            pass
 
         time.sleep(float(sleep_s))
 
