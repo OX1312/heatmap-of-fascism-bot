@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 import ssl
 import certifi
 import os
@@ -76,8 +76,7 @@ LOG_DIR = _LOG_ROOT / "logs"
 ERRORS_DIR = _LOG_ROOT / "errors"
 _LOG_DATE = datetime.now(_LOG_TZ).strftime("%Y-%m-%d")
 
-NORMAL_LOG_PATH = LOG_DIR / f"normal-{_LOG_DATE}.log"
-EVENT_LOG_PATH  = LOG_DIR / f"event-{_LOG_DATE}.log"
+BOT_LOG_PATH = LOG_DIR / f"bot-{_LOG_DATE}.log"
 
 BOOT_MARKER_PATH = LOG_DIR / "_boot_marker.txt"
 
@@ -112,11 +111,93 @@ ERROR_LOG_PATH = ERRORS_DIR / f"errors-{_LOG_DATE}.log"
 # --- RETENTION ---
 RETENTION_DAYS = 14
 
+def _pro_startup_banner(cfg: dict) -> None:
+    """
+    Emit the canonical startup status lines ONCE per process start.
+    - Minimal, pro, no spam.
+    """
+    try:
+        if globals().get("_PRO_START_ONCE"):
+            return
+        globals()["_PRO_START_ONCE"] = True
+
+        run_date = datetime.now(_LOG_TZ).strftime("%Y-%m-%d")
+
+        # mode flags
+        test_mode = bool(cfg.get("test_mode", False))
+        auto_mode = bool(cfg.get("auto_mode", True))
+        auto_push = bool(cfg.get("auto_push_reports", True))
+
+        server = "TEST" if test_mode else "LIVE"
+        ingest = "AUTO" if auto_mode else "MANUAL"
+        push = "AUTO" if auto_push else "MANUAL"
+
+        log_line(f"RUNNING {run_date} | Version {__version__} | SERVER {server} | IMPORT {ingest} | PUSHMODE {push}")
+
+        # --- checks (best-effort, never crash) ---
+        # 1) GeoJSON counts
+        features_total = 0
+        try:
+            rp = Path(REPORTS_PATH)
+            if rp.exists():
+                data = json.loads(rp.read_text(encoding="utf-8"))
+                feats = data.get("features") or []
+                features_total = int(len(feats))
+        except Exception:
+            features_total = 0
+
+        # 2) Git remote reachable (fast)
+        git_ok = False
+        try:
+            import subprocess
+            remote = str(cfg.get("git_remote", "origin") or "origin")
+            branch = str(cfg.get("git_branch", "main") or "main")
+            r = subprocess.run(
+                ["git", "ls-remote", "--heads", remote, branch],
+                cwd=str(_LOG_ROOT),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=4,
+            )
+            git_ok = (r.returncode == 0 and bool(r.stdout.strip()))
+        except Exception:
+            git_ok = False
+
+        # 3) Mastodon instance reachable
+        mast_ok = False
+        try:
+            import requests
+            inst = str(cfg.get("instance_url", "") or "").rstrip("/")
+            if inst:
+                r = requests.get(inst + "/api/v1/instance", timeout=4)
+                mast_ok = (r.status_code >= 200 and r.status_code < 500)
+        except Exception:
+            mast_ok = False
+
+        # 4) uMap reachable
+        umap_ok = False
+        try:
+            import requests
+            r = requests.get("https://umap.openstreetmap.de/", timeout=4)
+            umap_ok = (r.status_code >= 200 and r.status_code < 500)
+        except Exception:
+            umap_ok = False
+
+        def ck(b):  # checkmark
+            return "✅" if b else "❌"
+
+        log_line(f"CHECKS | git={ck(git_ok)} | mastodon={ck(mast_ok)} | umap={ck(umap_ok)} | geojson={features_total}")
+    except Exception:
+        pass
+
+
+
 def _prune_old_logs(root: pathlib.Path, days: int = RETENTION_DAYS) -> None:
-    """Delete normal-/event- logs older than N days (date from filename, Europe/Berlin)."""
+    """Delete bot- logs older than N days (date from filename, Europe/Berlin)."""
     try:
         today = datetime.now(_LOG_TZ).date()
-        for prefix in ("normal-", "event-"):
+        for prefix in ("bot-",):
             for fp in root.glob(f"{prefix}*.log"):
                 m = re.match(rf"^{prefix}(\d{{4}}-\d{{2}}-\d{{2}})\.log$", fp.name)
                 if not m:
@@ -243,9 +324,9 @@ def print(*args, **kwargs):
                 prefix = prefix[:-2] + ":" + prefix[-2:]
             full = f"{prefix} - {line}" if line else f"{prefix} -"
 
-            _append(NORMAL_LOG_PATH, full)
+            _append(BOT_LOG_PATH, full)
 
-            if k:
+            if False and k:
                 sig = _event_sig(k, line)
                 if _EVENT_LAST_BY_KEY.get(k) != sig:
                     _EVENT_LAST_BY_KEY[k] = sig
@@ -1745,6 +1826,20 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None 
     tag = tag.lstrip("#")
     tag_key = tag.lower()
 
+    # GLOBAL cooldown guard (shared across endpoints): if we hit 429 anywhere, pause ALL polling briefly.
+    now = time.time()
+    g_until = float(globals().get("_GLOBAL_RL_UNTIL", 0.0) or 0.0)
+    if now < g_until:
+        # throttle WAIT spam (max once per 60s)
+        try:
+            last = float(globals().get("_GLOBAL_RL_LASTLOG_TS", 0.0) or 0.0)
+            if (now - last) >= 60.0:
+                globals()["_GLOBAL_RL_LASTLOG_TS"] = now
+                log_line(f"WAIT | global_api | {int(g_until - now)}s | rate_limited")
+        except Exception:
+            pass
+        return []
+
     # Cooldown guard: if we were rate-limited recently, do NOT even hit the API.
     now = time.time()
     until = float(_HASHTAG_RL_UNTIL.get(tag_key, 0.0))
@@ -1762,12 +1857,6 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None 
 
     r = requests.get(url, headers=headers, params=params, timeout=MASTODON_TIMEOUT_S)
 
-    # Noise reduction:
-    # - log http line only on non-200
-    # - log items line only when we actually got items (>0)
-    if r.status_code != 200:
-        print(f"hashtag_timeline tag={tag} http={r.status_code} since_id={since_id or '-'} max_id={max_id or '-'}")
-
     # Rate limit safety: NEVER crash the main loop on 429.
     if r.status_code == 429:
         ra = (r.headers or {}).get("Retry-After")
@@ -1778,25 +1867,37 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None 
 
         # Set per-tag cooldown so we don't hammer again next loop
         _HASHTAG_RL_UNTIL[tag_key] = time.time() + float(wait_s)
+        # GLOBAL cooldown so other tags/endpoints don't immediately trigger more 429s
+        try:
+            _g = float(globals().get("_GLOBAL_RL_UNTIL", 0.0) or 0.0)
+            _new = time.time() + float(wait_s)
+            if _new > _g:
+                globals()["_GLOBAL_RL_UNTIL"] = _new
+        except Exception:
+            pass
 
         # Throttle 429 log spam (max once per 60s per tag)
+        now = time.time()
         lastlog = float(_HASHTAG_RL_LASTLOG.get(tag_key, 0.0))
-        if (time.time() - lastlog) >= 60.0:
-            print(f"hashtag_timeline tag={tag} http=429 rate_limited wait_s={wait_s}")
-            _HASHTAG_RL_LASTLOG[tag_key] = time.time()
+        if (now - lastlog) >= 60.0:
+            log_line(f"WAIT | tag={tag} | {wait_s}s | rate_limited")
+            _HASHTAG_RL_LASTLOG[tag_key] = now
 
         time.sleep(wait_s)
         return []
 
-    r.raise_for_status()
+    # Non-200: log minimal + return [] (no crash)
+    if r.status_code != 200:
+        try:
+            log_line(f"ERROR | hashtag_timeline | tag={tag} http={r.status_code}")
+        except Exception:
+            pass
+        return []
+
     data = r.json()
-
-    n = len(data) if isinstance(data, list) else 0
-    if n > 0:
-        print(f"hashtag_timeline tag={tag} http=200 items={n} since_id={since_id or '-'} max_id={max_id or '-'}")
-
-    return data
-
+    if isinstance(data, list) and len(data) > 0:
+        return data
+    return []
 class StatusDeleted(Exception):
     pass
 
@@ -2048,7 +2149,10 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
 
     if checked:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        log_hourly("VERIFY_DELETED_LOG", f"VERIFY_DELETED | checked {checked} | removed {removed}")
+        if removed > 0:
+            log_line(f"VERIFY_DELETED | checked {checked} | removed {removed}")
+        else:
+            log_hourly("VERIFY_DELETED_LOG", f"VERIFY_DELETED | checked {checked} | removed {removed}")
     return checked, removed
 
 
@@ -2494,14 +2598,82 @@ def load_trusted_set(cfg: Dict[str, Any]) -> set:
     return allowed
 
 def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) -> bool:
+    # Rate-limit safe + low-noise logging.
     if not trusted_set:
-        print(f"fav_check status={status_id} trusted_set=EMPTY")
+        log_line(f"fav_check status={status_id} trusted_set=EMPTY")
         return False
+
+    # per-endpoint cooldown (429)
+    try:
+        now = time.time()
+        rl_until = float(globals().get("_FAV_RL_UNTIL", {}).get("favourited_by", 0.0) or 0.0)
+        if now < rl_until:
+            # optional: keep this quiet; main 429 already logged as WAIT
+            return False
+    except Exception:
+        pass
+
     try:
         fav_accounts = get_favourited_by(cfg, status_id)
     except Exception as e:
-        print(f"fav_check status={status_id} ERROR={e!r}")
-        return False
+        # Handle 429 gracefully (requests.HTTPError usually carries response)
+        try:
+            resp = getattr(e, "response", None)
+            code = getattr(resp, "status_code", None)
+            if code == 429:
+                ra = None
+                try:
+                    ra = (getattr(resp, "headers", None) or {}).get("Retry-After")
+                except Exception:
+                    ra = None
+                try:
+                    wait_s = max(5, min(300, int(str(ra).strip()))) if ra else 30
+                except Exception:
+                    wait_s = 30
+
+                # set cooldown
+                try:
+                    d = globals().setdefault("_FAV_RL_UNTIL", {})
+                    d["favourited_by"] = time.time() + float(wait_s)
+                except Exception:
+                    pass
+
+                # throttle WAIT log (max once per 60s)
+                try:
+                    last = float(globals().get("_FAV_RL_LASTLOG_TS", 0.0) or 0.0)
+                    if (time.time() - last) >= 60.0:
+                        globals()["_FAV_RL_LASTLOG_TS"] = time.time()
+                        log_line(f"fav_check WAIT wait_s={wait_s} rate_limited")
+                        log_line(f"fav_check status={status_id} ERROR=HTTP_429 wait_s={wait_s}")
+                except Exception:
+                    pass
+
+                return False
+        except Exception:
+            pass
+
+        # FAVCHECK_429_FALLBACK: robust 429 detection (response may be missing)
+        try:
+            if " 429 " in repr(e) or "429" in repr(e):
+                wait_s = 30
+                try:
+                    d = globals().setdefault("_FAV_RL_UNTIL", {})
+                    d["favourited_by"] = time.time() + float(wait_s)
+                except Exception:
+                    pass
+                try:
+                    last = float(globals().get("_FAV_RL_LASTLOG_TS", 0.0) or 0.0)
+                    if (time.time() - last) >= 60.0:
+                        globals()["_FAV_RL_LASTLOG_TS"] = time.time()
+                        log_line(f"fav_check WAIT wait_s={wait_s} rate_limited")
+                except Exception:
+                    pass
+                return False
+        except Exception:
+            pass
+
+    log_line(f"fav_check status={status_id} ERROR={e!r}")
+    return False
 
     fav_norm = []
     for a in (fav_accounts or []):
@@ -2510,9 +2682,9 @@ def is_approved_by_fav(cfg: Dict[str, Any], status_id: str, trusted_set: set) ->
             acct = a.get("acct") or a.get("username")
         else:
             acct = str(a)
-        fav_norm.append((acct or '').split('@')[0].strip().lower())
+        fav_norm.append((acct or "").split("@")[0].strip().lower())
 
-    print(f"fav_check status={status_id} favs={fav_norm} trusted={sorted(trusted_set)}")
+    log_line(f"fav_check status={status_id} favs={fav_norm} trusted={sorted(trusted_set)}")
     return any(x in trusted_set for x in fav_norm)
 
 # =========================
@@ -2819,6 +2991,7 @@ def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any
 
         since_id = str(st_state.get(tag_key) or "").strip() or None
 
+
         def backfill_pages(pages: int = 10, limit: int = 40):
             out = []
             seen = set()
@@ -2993,8 +3166,64 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
         import traceback
         log_line(f"ERROR | auto_push | exc {e!r} | tb {traceback.format_exc()!r}")
 
+
+
+def _cfg_bool(cfg: dict, key: str, default: bool = False) -> bool:
+    v = (cfg or {}).get(key, default)
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
+
+def log_poll(cfg: dict, msg: str) -> None:
+    # debug-only poll noise (default OFF) — robust against string values like "false"/"0"
+    try:
+        v = None
+        if isinstance(cfg, dict):
+            v = cfg.get("log_poll", False)
+        if isinstance(v, bool):
+            enabled = v
+        elif isinstance(v, (int, float)):
+            enabled = bool(v)
+        elif isinstance(v, str):
+            enabled = v.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            enabled = False
+        if enabled:
+            log_line(msg)
+    except Exception:
+        pass
+
+def log_idle(cfg: dict, msg: str) -> None:
+    # debug-only idle noise (default OFF) — robust against string values like "false"/"0"
+    try:
+        v = None
+        if isinstance(cfg, dict):
+            v = cfg.get("log_idle", False)
+        if isinstance(v, bool):
+            enabled = v
+        elif isinstance(v, (int, float)):
+            enabled = bool(v)
+        elif isinstance(v, str):
+            enabled = v.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            enabled = False
+        if enabled:
+            log_line(msg)
+    except Exception:
+        pass
+
 def log_line(msg: str) -> None:
+    # canonical log sink
     print(msg, flush=True)
+
+def poll_log(msg: str) -> None:
+    # POLL spam OFF by default (enable only for debugging)
+    if bool(globals().get('_DEBUG_POLL_LOG', False)):
+        log_line(msg)
 
 
 # === ENTITY_ENRICH_WIKI_START ===
@@ -3182,6 +3411,10 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
 
 
 def main_once():
+    _now = datetime.now(_LOG_TZ)
+    if _now.minute == 0 and not globals().get("_SUMMARY_HOUR") == _now.hour:
+        globals()["_SUMMARY_HOUR"] = _now.hour
+
     # Ensure baseline files exist
     ensure_object_file(CACHE_PATH)
     ensure_array_file(PENDING_PATH)
@@ -3191,6 +3424,8 @@ def main_once():
     ensure_object_file(SUPPORT_STATE_PATH)
 
     cfg = load_json(CFG_PATH, None)
+    # PRO startup banner (once)
+
     if not isinstance(cfg, dict):
         cfg = {}
 
@@ -3207,7 +3442,10 @@ def main_once():
         cfg["test_mode"] = _tm
         print(f"cfg_override test_mode={_tm} via ENV")
 
-    test_mode = bool(cfg.get("test_mode", True))
+    # PRO startup banner (once)
+    _pro_startup_banner(cfg)
+
+    test_mode = bool(cfg.get("test_mode", False))
 
     # auto_mode = ONLY Git auto-push switch
     # Backwards compatible: if auto_mode missing but auto_push_reports==true, treat as auto_mode=true
@@ -3346,10 +3584,50 @@ def main_once():
     # -------------------------
     # 1) Ingest into pending
     # -------------------------
+    log_poll(cfg, "POLL | enter main_once")
     for tag, event, st in iter_statuses(cfg):
         status_id = st.get("id")
         url = st.get("url")
         if not status_id or not url:
+            continue
+
+        # -------------------------
+        # OPS hashtags (no image/location required)
+        # -------------------------
+        if str(tag).lstrip("#") in ("server_restart", "help", "support"):
+            # only managers should be able to trigger ops signals
+            acc = (st.get("account") or {}) if isinstance(st.get("account"), dict) else {}
+            reporter = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
+            tag0 = str(tag).lstrip("#")
+            is_manager = bool(reporter) and (reporter in (managers_set or set()))
+            is_admin = (reporter == "buntepanther")
+
+            # server_restart: ONLY admin (@buntepanther)
+            if tag0 == "server_restart" and not is_admin:
+                continue
+
+            # help/support: managers only
+            if tag0 in ("help", "support") and not is_manager:
+                continue
+
+            if is_admin or is_manager:
+                if tag0 == "server_restart":
+                    log_line(f"OPS | server_restart | by={reporter} status_id={status_id}")
+                    reply_once(
+                        cfg, cache, f"ops_server_restart:{status_id}", str(status_id),
+                        "🤖 🚀 Server restart request received.\n\n"
+                        "If you meant the bot process: an admin will run a restart.\n\n"
+                        "FCK RACISM. ✊ ALERTA ALERTA."
+                    )
+                else:
+                    log_line(f"OPS | {str(tag).lstrip('#')} | by={reporter} status_id={status_id}")
+                    reply_once(
+                        cfg, cache, f"ops_help_support:{status_id}", str(status_id),
+                        "🤖 ℹ️ Support / Help\n\n"
+                        "Please send a *private message* to @HeatmapofFascism with #support_anfrage.\n\n"
+                        "FCK RACISM. ✊ ALERTA ALERTA."
+                    )
+            # always skip further processing for ops hashtags
             continue
 
         item_id = f"masto-{status_id}"
@@ -3947,9 +4225,13 @@ def main_once():
     submissions = int(added_pending)
     pending_left = int(len(still_pending))
     reviewed = int(max(0, (int(pending_before) + submissions) - pending_left))
-    # SUMMARY: log only on activity (avoid noise per loop)
-    if submissions or reviewed or int(published):
+    # Canonical SUMMARY (every ~3 min, even when zero)
+    now_ts = time.time()
+    last_ts = float(globals().get("_SUMMARY_LAST_TS", 0.0) or 0.0)
+    if (now_ts - last_ts) >= 180.0:
+        globals()["_SUMMARY_LAST_TS"] = now_ts
         log_line(f"SUMMARY {run_date} | Version {__version__} | SUBMISSION {submissions} | REVIEWED {reviewed} | PUBLISHED {int(published)}")
+
     # Manager notify (direct): update once + daily summary only on change
     try:
         _manager_notify_update_once(cfg, __version__)
@@ -3962,7 +4244,6 @@ def main_once():
         )
     except Exception as e:
         log_line(f"ERROR | manager_notify | err {e!r}")
-
 
     return {
         'added_pending': int(added_pending),
@@ -4040,12 +4321,19 @@ def main():
             _last = float(globals().get("_HB_TS", 0.0) or 0.0)
             if pending_left > 0 or did_work or (_now - _last) >= _hb_every:
                 globals()["_HB_TS"] = _now
-                log_line(f"RUNNING | sleep={int(sleep_s)}s | pending_left={pending_left} | did_work={int(bool(did_work))}")
+        except Exception:
+            pass
+
+        # Throttled idle hint (prevents "looks stuck" during long backoff / rate-limits)
+        try:
+            _now = time.time()
+            _last = float(globals().get("_LAST_IDLE_LOG_TS", 0.0) or 0.0)
+            if float(sleep_s) >= 30.0 and (_now - _last) >= 60.0:
+                globals()["_LAST_IDLE_LOG_TS"] = _now
         except Exception:
             pass
 
         time.sleep(float(sleep_s))
-
 
 def normalize_reports_geojson(reports: dict) -> None:
     entities = load_entities_dict()
