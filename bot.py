@@ -991,7 +991,7 @@ def maybe_idle_enrich_entities(cfg: dict) -> None:
         log_line(f"idle_enrich OK key={pick_key} qid={qid} desc_len={len(desc)} source=wikidata_via_wikipedia")
     except Exception as e:
         try:
-            log_line(f"idle_enrich ERROR err={e!r}")
+            log_line(f"ERROR | idle_enrich | err {e!r}")
         except Exception:
             pass
         return
@@ -1591,7 +1591,7 @@ def sync_managers_and_blacklist(cfg: dict):
     except Exception as e:
         # log_line if available, otherwise silent
         try:
-            log_line(f"sync_managers_and_blacklist WARN: {type(e).__name__}: {e}")
+            log_line(f"WARN | sync_managers | {type(e).__name__} {e}")
         except Exception:
             pass
 
@@ -2020,8 +2020,7 @@ def verify_deleted_features(reports: Dict[str, Any], cfg: Dict[str, Any], budget
 
     if checked:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        print(f"verify_deleted checked={checked} removed={removed}")
-
+        log_hourly("VERIFY_DELETED_LOG", f"VERIFY_DELETED | checked {checked} | removed {removed}")
     return checked, removed
 
 
@@ -2557,15 +2556,6 @@ def make_product_feature(
     notes: str,
     removed_at: Optional[str],
 ) -> Dict[str, Any]:
-    # Idle background: enrich one missing entity description (cached in entities.json)
-    if (len(still_pending) == 0 and int(added_pending) == 0 and int(published) == 0
-        and int(removed or 0) == 0 and int(fav_removed or 0) == 0 and int(v_removed or 0) == 0
-        and int(ctx_changed or 0) == 0):
-        try:
-            maybe_idle_enrich_entities(cfg)
-        except Exception as e:
-            log_line(f"idle_enrich ERROR err={e!r}")
-
     return {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
@@ -2679,13 +2669,13 @@ def _manager_notify_update_once(cfg: dict, version_str: str) -> None:
         if ok:
             log_line(f"manager_notify OK kind=update managers_ok={ok} token={token}")
         else:
-            log_line("manager_notify ERROR err='all_dm_failed'")
+            log_line("ERROR | manager_notify | dm_failed all_dm_failed")
 
         state_path.write_text(token, encoding="utf-8")
     except Exception as e:
-        log_line(f"manager_notify ERROR kind=update outer_err={e!r}")
+        log_line(f"ERROR | manager_notify | kind update | outer_err {e!r}")
 
-def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, pending_left: int, version_str: str) -> None:
+def _manager_daily_summary_if_changed(cfg: dict, *, submissions: int, reviewed: int, published: int, version_str: str) -> None:
     """
     Daily summary DM:
     - Only in window 23:59 local time
@@ -2706,7 +2696,7 @@ def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, 
             prev = {}
 
         today = _now_local().date().isoformat()
-        cur = {"added": int(added), "published": int(published), "pending_left": int(pending_left)}
+        cur = {"submissions": int(submissions), "reviewed": int(reviewed), "published": int(published)}
 
         last_day = str((prev or {}).get("last_day") or "")
         last_cur = (prev or {}).get("last_cur") if isinstance(prev, dict) else None
@@ -2725,11 +2715,10 @@ def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, 
             log_line("manager_summary SKIP reason=no_manager_accounts")
             state_path.write_text(__import__("json").dumps({"last_day": today, "last_cur": cur}), encoding="utf-8")
             return
-
         msg = (
-            "🤖 🚀 Daily summary (23:59, only on change)\n"
-            f"v={version_str}\n"
-            f"added={cur['added']} | published={cur['published']} | pending_left={cur['pending_left']}"
+            f"🤖 🚀 Daily Summary — {today}\n"
+            f"Version {version_str}\n\n"
+            f"Submissions: {cur['submissions']} | Reviewed: {cur['reviewed']} | Published: {cur['published']}"
         )
 
         ok = 0
@@ -2743,11 +2732,11 @@ def _manager_daily_summary_if_changed(cfg: dict, *, added: int, published: int, 
         if ok:
             log_line(f"manager_summary OK managers_ok={ok} {cur}")
         else:
-            log_line("manager_summary ERROR err='all_dm_failed'")
+            log_line("ERROR | manager_summary | dm_failed all_dm_failed")
 
         state_path.write_text(__import__("json").dumps({"last_day": today, "last_cur": cur}), encoding="utf-8")
     except Exception as e:
-        log_line(f"manager_summary ERROR outer_err={e!r}")
+        log_line(f"ERROR | manager_summary | outer_err {e!r}")
 
 
 # =========================
@@ -2907,7 +2896,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
         # only if reports.geojson changed
         rc, out = run_git(["status", "--porcelain", "--", relpath])
         if rc != 0:
-            log_line(f"auto_push ERROR git_status rc={rc} out={out!r}")
+            log_line(f"ERROR | auto_push | git_status rc {rc} | out {out!r}")
             return
         if not out.strip():
             return  # clean
@@ -2946,7 +2935,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
 
         rc, out = run_git(["add", "--", relpath])
         if rc != 0:
-            log_line(f"auto_push ERROR git_add rc={rc} out={out!r}")
+            log_line(f"ERROR | auto_push | git_add rc {rc} | out {out!r}")
             return
 
         tsmsg = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -2957,7 +2946,7 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
             if "nothing to commit" in (out or "").lower():
                 log_line("auto_push SKIP nothing_to_commit")
                 return
-            log_line(f"auto_push ERROR git_commit rc={rc} out={out!r}")
+            log_line(f"ERROR | auto_push | git_commit rc {rc} | out {out!r}")
             return
 
         rc, out = run_git(["push", remote, f"HEAD:{branch}"])
@@ -2969,17 +2958,64 @@ def auto_git_push_reports(cfg: dict, relpath: str = "reports.geojson", reason: s
             save_state(st)
             log_line(f"auto_push OK reason={reason} remote={remote} branch={branch} file={relpath}")
         else:
-            log_line(f"auto_push ERROR git_push rc={rc} out={out!r}")
+            log_line(f"ERROR | auto_push | git_push rc {rc} | out {out!r}")
 
     except Exception as e:
         import traceback
-        log_line(f"auto_push ERROR exc={e!r}\n{traceback.format_exc()}")
+        log_line(f"ERROR | auto_push | exc {e!r} | tb {traceback.format_exc()!r}")
 
 def log_line(msg: str) -> None:
     print(msg, flush=True)
 
 
 # === ENTITY_ENRICH_WIKI_START ===
+
+# --- HOURLY (persistent across runs) ---
+def _hour_stamp_berlin() -> str:
+    try:
+        from zoneinfo import ZoneInfo
+        import datetime as _dt
+        return _dt.datetime.now(ZoneInfo("Europe/Berlin")).strftime("%Y-%m-%d %H")
+    except Exception:
+        import time as _t
+        return _t.strftime("%Y-%m-%d %H")
+
+
+def _load_hourly_state() -> dict:
+    state_path = ROOT / "logs" / "hourly_state.json"
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        if not state_path.exists():
+            state_path.write_text("{}", encoding="utf-8")
+        st = json.loads(state_path.read_text(encoding="utf-8") or "{}")
+        return st if isinstance(st, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_hourly_state(st: dict) -> None:
+    state_path = ROOT / "logs" / "hourly_state.json"
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def should_run_hourly(key: str) -> bool:
+    st = _load_hourly_state()
+    now_hour = _hour_stamp_berlin()
+    if st.get(key) != now_hour:
+        st[key] = now_hour
+        _save_hourly_state(st)
+        return True
+    return False
+
+
+def log_hourly(key: str, msg: str) -> None:
+    if should_run_hourly(key):
+        log_line(msg)
+
 def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = None) -> tuple[str, str]:
     """
     Wikipedia lookup (EN default):
@@ -3031,7 +3067,6 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         u2 = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{t_enc}"
         r2 = requests.get(u2, headers=headers, timeout=MASTODON_TIMEOUT_S)
         if r2.status_code != 200:
-            print(f"wiki_summary http={r2.status_code} title={title!r}")
             return (title, "")
 
         js2 = r2.json() or {}
@@ -3047,7 +3082,6 @@ def _wiki_best_summary(q: str, *, lang: str = "en", user_agent: str | None = Non
         return (title, out)
 
     except Exception as e:
-        print(f"wiki_error err={e!r}")
         return ("", "")
 
 def _is_code_category(st: str) -> bool:
@@ -3078,20 +3112,14 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
     if not feats:
         return 0
 
-    changed_ui = 0
     changed_entity = 0
     budget = max(0, int(max_per_run))
 
     for f in feats:
         props = (f or {}).get("properties") or {}
 
-        # category_display (UI only) — does NOT consume entity budget
+        # NOTE: we do NOT persist UI-only fields like category_display into reports.geojson.
         st = str(props.get("sticker_type") or "").strip()
-        if st:
-            cd = st.upper() if _is_code_category(st) else st
-            if str(props.get("category_display") or "") != cd:
-                props["category_display"] = cd
-                changed_ui += 1
 
         # entity enrichment budget
         if budget and changed_entity >= budget:
@@ -3116,10 +3144,11 @@ def enrich_entities_idle(cfg: dict, reports: dict, *, max_per_run: int = 2) -> i
         props["entity_desc"] = summ
         changed_entity += 1
 
-    if (changed_ui or changed_entity):
-        log_line(f"entity_enrich ui={changed_ui} entity={changed_entity}")
+    # Log only when we actually enriched entity fields
+    if changed_entity:
+        log_line(f"ENTITY_ENRICH | updated {changed_entity}")
 
-    return int(changed_ui + changed_entity)
+    return int(changed_entity)
 # === ENTITY_ENRICH_WIKI_END ===
 
 
@@ -3163,17 +3192,19 @@ def main_once():
         auto_mode = False
         cfg["auto_mode"] = False
         cfg["auto_push_reports"] = False
-        log_line("WARN: auto_mode disabled because test_mode=True (mutually exclusive).")
+        log_line("WARN | mode | auto_mode_disabled | test_mode_true")
     else:
         cfg["auto_mode"] = bool(auto_mode)
         cfg["auto_push_reports"] = bool(auto_mode)
 
-        # Human-friendly run mode line (avoid boolean soup)
-    mode = "TEST" if test_mode else "LIVE"
-    ingest = "AUTO" if auto_mode else "MANUAL"
-    push = "AUTO" if bool(cfg.get("auto_push_reports")) else "MANUAL"
-    log_line(f"RUN v={__version__} mode={mode} ingest={ingest} push={push}")
-
+    # Human-friendly run mode line (avoid boolean soup)
+    server_state = "TEST" if test_mode else "LIVE"
+    import_mode = "AUTO" if auto_mode else "MANUAL"
+    push_mode = "AUTO" if bool(cfg.get("auto_push_reports")) else "MANUAL"
+    if not globals().get('_RUNNING_BANNER_SENT', False):
+        globals()['_RUNNING_BANNER_SENT'] = True
+        run_date = today_iso()
+    log_hourly("STATUS", f"HOURLY {run_date} | Version {__version__} | SERVER {server_state} | INPUT {import_mode} | PUSHMODE {push_mode}")
     # If auto_mode is ON and reports.geojson is already dirty from earlier runs, push once.
     auto_git_push_reports(cfg, reason="startup_flush")
 
@@ -3215,6 +3246,7 @@ def main_once():
 
     cache: Dict[str, Any] = load_json(CACHE_PATH, {})
     pending: List[Dict[str, Any]] = load_json(PENDING_PATH, [])
+    pending_before = int(len(pending))
 
     # RETRY NEEDS_INFO geocode (e.g. after better formatting / new token)
     for it in pending:
@@ -3263,7 +3295,10 @@ def main_once():
     reports = load_reports()
     # Stable policy checks (do NOT dirty repo on mere "checked")
     verify_budget = int(cfg.get("verify_budget", 200))
-    v_checked, v_removed = verify_deleted_features(reports, cfg, verify_budget)
+    if should_run_hourly("VERIFY_DELETED_CALL"):
+        v_checked, v_removed = verify_deleted_features(reports, cfg, verify_budget)
+    else:
+        v_checked, v_removed = 0, 0
 
     context_budget = int(cfg.get("context_budget", 100))
     ctx_changed = update_features_from_context(reports, cfg, context_budget)
@@ -3862,7 +3897,7 @@ def main_once():
         enr = enrich_entities_idle(cfg, reports, max_per_run=max_en)
         if enr:
             reports_dirty = True
-            log_line(f"entity_enrich updated={enr}")
+            log_line(f"ENTITY_ENRICH | updated {enr}")
     if reports_dirty:
         for f in (reports.get("features") or []):
             props = (f or {}).get("properties") or {}
@@ -3881,19 +3916,25 @@ def main_once():
         auto_git_push_reports(cfg)
 
     ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    log_line(f"Added pending: {added_pending} | Pending left: {len(still_pending)} | Published: {published}")
+    run_date = today_iso()
+    submissions = int(added_pending)
+    pending_left = int(len(still_pending))
+    reviewed = int(max(0, (int(pending_before) + submissions) - pending_left))
+    # SUMMARY: log only on activity (avoid noise per loop)
+    if submissions or reviewed or int(published):
+        log_line(f"SUMMARY {run_date} | Version {__version__} | SUBMISSION {submissions} | REVIEWED {reviewed} | PUBLISHED {int(published)}")
     # Manager notify (direct): update once + daily summary only on change
     try:
         _manager_notify_update_once(cfg, __version__)
         _manager_daily_summary_if_changed(
             cfg,
-            added=int(added_pending),
+            submissions=int(submissions),
+            reviewed=int(reviewed),
             published=int(published),
-            pending_left=int(len(still_pending)),
             version_str=__version__,
         )
     except Exception as e:
-        log_line(f"manager_notify ERROR err={e!r}")
+        log_line(f"ERROR | manager_notify | err {e!r}")
 
 
     return {
@@ -3913,7 +3954,7 @@ def main():
     # - backoff when idle
     stages = [2, 4, 8, 15, 30]  # seconds
     idle_i = 0
-    print(f"START v={__version__}")
+    print(f"START Version {__version__}")
 
     while True:
         stats = None
@@ -3921,7 +3962,7 @@ def main():
             stats = main_once()
         except Exception as e:
             # log exception + full traceback as separate log lines (grep-friendly)
-            log_line(f"loop ERROR err={e!r}")
+            log_line(f"ERROR | loop | err {e!r}")
             try:
                 _append(ERROR_LOG_PATH, f"{_now_iso()} loop ERROR err={e!r}")
             except Exception:
