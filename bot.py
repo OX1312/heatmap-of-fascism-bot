@@ -3168,7 +3168,11 @@ def main_once():
         cfg["auto_mode"] = bool(auto_mode)
         cfg["auto_push_reports"] = bool(auto_mode)
 
-    log_line(f"RUN v={__version__} test_mode={test_mode} auto_mode={auto_mode} auto_push_reports={bool(cfg.get('auto_push_reports'))}")
+        # Human-friendly run mode line (avoid boolean soup)
+    mode = "TEST" if test_mode else "LIVE"
+    ingest = "AUTO" if auto_mode else "MANUAL"
+    push = "AUTO" if bool(cfg.get("auto_push_reports")) else "MANUAL"
+    log_line(f"RUN v={__version__} mode={mode} ingest={ingest} push={push}")
 
     # If auto_mode is ON and reports.geojson is already dirty from earlier runs, push once.
     auto_git_push_reports(cfg, reason="startup_flush")
