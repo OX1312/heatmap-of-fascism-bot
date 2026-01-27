@@ -31,7 +31,7 @@
 # =========================
 # VERSION / MODES
 # =========================
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 import ssl
 import certifi
 import os
@@ -44,6 +44,11 @@ SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 import json
 import re
 import time
+
+# --- HASHTAG TIMELINE RATE-LIMIT STATE (in-memory, per-process) ---
+# keys: tag_key (e.g. 'sticker_report' / 'graffiti_report')
+_HASHTAG_RL_UNTIL = {}   # tag_key -> unix_ts until which we skip API calls
+_HASHTAG_RL_LASTLOG = {} # tag_key -> unix_ts of last 429 log line (spam throttle)
 import traceback
 import pathlib
 import math
@@ -1710,6 +1715,14 @@ def process_support_requests(cfg: Dict[str, Any], trusted_set: set) -> int:
 def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None = None, max_id: str | None = None, limit: int = 40) -> List[Dict[str, Any]]:
     instance = cfg["instance_url"].rstrip("/")
     tag = tag.lstrip("#")
+    tag_key = tag.lower()
+
+    # Cooldown guard: if we were rate-limited recently, do NOT even hit the API.
+    now = time.time()
+    until = float(_HASHTAG_RL_UNTIL.get(tag_key, 0.0))
+    if now < until:
+        return []
+
     url = f"{instance}/api/v1/timelines/tag/{tag}"
     headers = {"Authorization": f"Bearer {cfg['access_token']}"}
 
@@ -1734,7 +1747,16 @@ def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None 
             wait_s = max(1, min(300, int(str(ra).strip()))) if ra else 30
         except Exception:
             wait_s = 30
-        print(f"hashtag_timeline tag={tag} http=429 rate_limited wait_s={wait_s}")
+
+        # Set per-tag cooldown so we don't hammer again next loop
+        _HASHTAG_RL_UNTIL[tag_key] = time.time() + float(wait_s)
+
+        # Throttle 429 log spam (max once per 60s per tag)
+        lastlog = float(_HASHTAG_RL_LASTLOG.get(tag_key, 0.0))
+        if (time.time() - lastlog) >= 60.0:
+            print(f"hashtag_timeline tag={tag} http=429 rate_limited wait_s={wait_s}")
+            _HASHTAG_RL_LASTLOG[tag_key] = time.time()
+
         time.sleep(wait_s)
         return []
 
