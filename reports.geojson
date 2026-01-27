@@ -271,6 +271,54 @@
         "snap_prev_method": "gps+snap_walk:footway|avoid_building",
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362"
       }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.645878,
+          53.8878103
+        ]
+      },
+      "properties": {
+        "id": "masto-115967049464871568",
+        "source": "https://mastodon.social/@troete_one/115967049464871568",
+        "status_id": "115967049464871568",
+        "instance_url": "https://mastodon.social",
+        "status": "present",
+        "sticker_type": "AfD",
+        "category_display": "Unknown",
+        "entity_raw": "",
+        "entity_key": "",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
+        "notes": "",
+        "first_seen": "2026-01-27",
+        "last_seen": "2026-01-27",
+        "seen_count": 1,
+        "removed_at": null,
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01",
+        "accuracy_m": 10,
+        "radius_m": 10,
+        "geocode_method": "gps",
+        "location_text": "53.8878103, 10.645878",
+        "lat": 53.8878103,
+        "lon": 10.645878,
+        "media": [
+          "https://files.mastodon.social/media_attachments/files/115/967/049/366/485/448/original/33edd2a8428159be.png"
+        ],
+        "category": "Unknown",
+        "identity_desc": "",
+        "identity_display": "",
+        "media0": "https://files.mastodon.social/media_attachments/files/115/967/049/366/485/448/original/33edd2a8428159be.png",
+        "needs_verification": true
+      }
     }
   ]
 }
