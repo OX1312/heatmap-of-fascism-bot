@@ -1,84 +1,35 @@
-# logs / runtime
-*.log
-bot.launchd.log
-bot.log
-bot_run.log
-
-# accidental file
-PY
-
-# python
+# --- Python / OS ---
 __pycache__/
 *.pyc
 .DS_Store
-
-# secrets
-secrets.json
-
-# local helpers / local state
-automode
-testmode
-cache_geocode.json
-
-# runtime state
-event_state.json
-bot.log
-bot.launchd.log
-*_run.log
-
-# virtual env
 .venv/
 
-# runtime cache
-cache_geocode.json
-
-# local log archives
-*.bak
-
-# runtime caches (do not commit)
-cache_geocode.json
-event_state.json
-
-# runtime state / folders (do not commit)
-logs/
-errors/
+# --- Secrets (must never be tracked) ---
 secrets/
-support/
-_backup/
-timeline_state.json
+secrets.json
+
+# --- Runtime state (must never be tracked) ---
+state/
 pending.json
+timeline_state.json
+cache_geocode.json
 .autopush_state.json
+.manager_*.json
+.manager_*.txt
 
-# tracked cleanup (keep repo readable)
-bot.py.bak
-trusted_accounts.json
+# --- Logs (must never be tracked) ---
+logs/
+*.log
 
-# local backups
-*.bak-*
+# --- Support / Errors / Backups / Scratch ---
+support/
+errors/
+_backup/
+trash/
 
-# local backups
-reports.geojson.backup
-reports.geojson.badjson.backup
-
-# manager notify state
-.manager_daily_state.json
-.manager_last_update.txt
-
-# local backups / artifacts
-bot.py.bak*
-ox.bak*
-*.bak.*
-bot.launchd.log.bak*
+# --- Local artifacts / misc ---
 de.ox.heatmap-bot
 tail
-
-# local backups / artifacts
-bot.py.bak*
-ox.bak*
-*.bak.*
-bot.launchd.log.bak*
-de.ox.heatmap-bot
-tail
-
-# stray artifacts
-1
+*.bak*
+*.backup
+reports.geojson.*backup

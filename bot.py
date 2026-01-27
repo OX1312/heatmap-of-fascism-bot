@@ -187,6 +187,13 @@ def _pro_startup_banner(cfg: dict) -> None:
         def ck(b):  # checkmark
             return "✅" if b else "❌"
 
+        import time as _time
+        now = _time.time()
+        last = float(globals().get("_LAST_CHECKS_TS", 0.0) or 0.0)
+        if last and (now - last) < 3600.0:
+            return
+        globals()["_LAST_CHECKS_TS"] = now
+
         log_line(f"CHECKS | git={ck(git_ok)} | mastodon={ck(mast_ok)} | umap={ck(umap_ok)} | geojson={features_total}")
     except Exception:
         pass
@@ -3594,39 +3601,72 @@ def main_once():
         # -------------------------
         # OPS hashtags (no image/location required)
         # -------------------------
-        if str(tag).lstrip("#") in ("server_restart", "help", "support"):
-            # only managers should be able to trigger ops signals
+        if str(tag).lstrip("#") in ("server_restart", "help", "support", "bugreport"):
             acc = (st.get("account") or {}) if isinstance(st.get("account"), dict) else {}
             reporter = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
             tag0 = str(tag).lstrip("#")
             is_manager = bool(reporter) and (reporter in (managers_set or set()))
-            is_admin = (reporter == "buntepanther")
+            is_admin = (reporter == "buntepanther")  # admin = @buntepanther
 
-            # server_restart: ONLY admin (@buntepanther)
+            # permissions:
+            # - server_restart: admin only
+            # - support: managers only
+            # - help: everyone
+            # - bugreport: everyone
             if tag0 == "server_restart" and not is_admin:
                 continue
-
-            # help/support: managers only
-            if tag0 in ("help", "support") and not is_manager:
+            if tag0 == "support" and not is_manager:
                 continue
 
-            if is_admin or is_manager:
-                if tag0 == "server_restart":
-                    log_line(f"OPS | server_restart | by={reporter} status_id={status_id}")
-                    reply_once(
-                        cfg, cache, f"ops_server_restart:{status_id}", str(status_id),
-                        "🤖 🚀 Server restart request received.\n\n"
-                        "If you meant the bot process: an admin will run a restart.\n\n"
-                        "FCK RACISM. ✊ ALERTA ALERTA."
-                    )
-                else:
-                    log_line(f"OPS | {str(tag).lstrip('#')} | by={reporter} status_id={status_id}")
-                    reply_once(
-                        cfg, cache, f"ops_help_support:{status_id}", str(status_id),
-                        "🤖 ℹ️ Support / Help\n\n"
-                        "Please send a *private message* to @HeatmapofFascism with #support_anfrage.\n\n"
-                        "FCK RACISM. ✊ ALERTA ALERTA."
-                    )
+            if tag0 == "server_restart":
+                log_line(f"OPS | server_restart | by={reporter} status_id={status_id}")
+                reply_once(
+                    cfg, cache, f"ops_server_restart:{status_id}", str(status_id),
+                    "🤖 🚀 Server restart request received.\n\n"
+                    "If you meant the bot process: an admin will run a restart.\n\n"
+                    "FCK RACISM. ✊ ALERTA ALERTA."
+                )
+
+            elif tag0 == "help":
+                log_line(f"OPS | help | by={reporter} status_id={status_id}")
+                reply_once(
+                    cfg, cache, f"ops_help:{status_id}", str(status_id),
+                    "🤖 ℹ️ Help\n\n"
+                    "Please follow @HeatmapofFascism for updates.\n\n"
+                    "Report (public): ONE photo + location (coords or street+city) + #sticker_report/#graffiti_report.\n"
+                    "Optional: #sticker_type / #graffiti_type.\n\n"
+                    "Bug report: use #bugreport.\n\n"
+                    "⭐ Favourite this post to add your report to the map.\n\n"
+                    "FCK RACISM. ✊ ALERTA ALERTA."
+                )
+
+            elif tag0 == "support":
+                log_line(f"OPS | support | by={reporter} status_id={status_id}")
+                reply_once(
+                    cfg, cache, f"ops_support:{status_id}", str(status_id),
+                    "🤖 ℹ️ Support\n\n"
+                    "Please send a *private message* to @HeatmapofFascism with #support_anfrage.\n\n"
+                    "FCK RACISM. ✊ ALERTA ALERTA."
+                )
+
+            elif tag0 == "bugreport":
+                try:
+                    _ensure_support_files()
+                    txt = strip_html(st.get("content", "") or "")
+                    snip = " ".join((txt or "").split())
+                    if len(snip) > 200:
+                        snip = snip[:200].rstrip() + "…"
+                    BUGREPORT_LOG_PATH = SUPPORT_DIR / "bugreports.log"
+                    _append(BUGREPORT_LOG_PATH, f"{_now_iso()} | status_id={status_id} | by={reporter} | url={url} | {snip}")
+                except Exception as e:
+                    _append(ERROR_LOG_PATH, f"{_now_iso()} bugreport_log ERROR status_id={status_id} err={e!r}")
+
+                reply_once(
+                    cfg, cache, f"ops_bugreport:{status_id}", str(status_id),
+                    "🤖 🚀 Bug report logged.\n\n"
+                    "FCK RACISM. ✊ ALERTA ALERTA."
+                )
+
             # always skip further processing for ops hashtags
             continue
 

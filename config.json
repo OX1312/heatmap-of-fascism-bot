@@ -3,7 +3,10 @@
   "user_agent": "HeatmapOfFascismBot/1.0.1",
   "hashtags": {
     "sticker_report": "present",
-    "graffiti_report": "present"
+    "graffiti_report": "present",
+    "server_restart": "present",
+    "help": "present",
+    "support": "present"
   },
   "allowed_reviewers": [
     "HeatmapofFascism"
