@@ -109,7 +109,7 @@
         "last_seen_ym": "2026-01",
         "sticker_type": "AFD",
         "entity_key": "AFD",
-        "seen_count": 10,
+        "seen_count": 11,
         "removed_at": null,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg"
@@ -128,7 +128,7 @@
       "properties": {
         "id": "masto-115956523282215370",
         "status": "present",
-        "medium": "graffiti",
+        "medium": "sticker",
         "category": "1161",
         "entity_display": "1161",
         "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
@@ -151,7 +151,7 @@
         "last_seen_ym": "2026-01",
         "sticker_type": "1161",
         "entity_key": "1161",
-        "seen_count": 10,
+        "seen_count": 11,
         "removed_at": null,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg"
@@ -170,7 +170,7 @@
       "properties": {
         "id": "masto-115956581847599362",
         "status": "present",
-        "medium": "graffiti",
+        "medium": "sticker",
         "category": "1161",
         "entity_display": "1161",
         "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
@@ -193,7 +193,7 @@
         "last_seen_ym": "2026-01",
         "sticker_type": "1161",
         "entity_key": "1161",
-        "seen_count": 10,
+        "seen_count": 11,
         "removed_at": null,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg"
