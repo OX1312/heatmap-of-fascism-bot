@@ -14,9 +14,9 @@
         "id": "masto-115951200894835111",
         "status": "present",
         "medium": "sticker",
-        "category": "fck nwo fck grn",
-        "entity_display": "FCK NWO / GRN",
-        "entity_desc": "Combination of anti-Green Party and New World Order conspiracy slogans. FCK NWO refers to the New World Order conspiracy theory. FCK GRN expression opposition to the Green Party.",
+        "category": "Unknown",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
         "location_text": "intersection of Spengelweg and Rellinger Str., Hamburg",
@@ -26,16 +26,15 @@
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111",
         "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111",
         "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
-        "needs_verification": false,
-        "category_display": "FCK NWO / GRN",
+        "needs_verification": true,
+        "category_display": "Unknown",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
         "last_seen_ym": "2026-01",
-        "sticker_type": "FCK NWO FCK GRN",
-        "entity_key": "fck nwo fck grn"
+        "sticker_type": "FCK NWO FCK GRN"
       }
     },
     {
@@ -110,7 +109,7 @@
         "last_seen_ym": "2026-01",
         "sticker_type": "AFD",
         "entity_key": "AFD",
-        "seen_count": 11,
+        "seen_count": 12,
         "removed_at": null,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg"
@@ -152,7 +151,7 @@
         "last_seen_ym": "2026-01",
         "sticker_type": "1161",
         "entity_key": "1161",
-        "seen_count": 11,
+        "seen_count": 12,
         "removed_at": null,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg"
@@ -194,7 +193,7 @@
         "last_seen_ym": "2026-01",
         "sticker_type": "1161",
         "entity_key": "1161",
-        "seen_count": 11,
+        "seen_count": 12,
         "removed_at": null,
         "media": [
           "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg"
