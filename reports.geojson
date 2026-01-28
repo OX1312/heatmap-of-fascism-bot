@@ -14,9 +14,9 @@
         "id": "masto-115951200894835111",
         "status": "present",
         "medium": "sticker",
-        "category": "Unknown",
-        "entity_display": "Unknown",
-        "entity_desc": "Unknown (needs verification)",
+        "category": "fck nwo fck grn",
+        "entity_display": "FCK NWO / GRN",
+        "entity_desc": "Combination of anti-Green Party and New World Order conspiracy slogans. FCK NWO refers to the New World Order conspiracy theory. FCK GRN expression opposition to the Green Party.",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
         "location_text": "intersection of Spengelweg and Rellinger Str., Hamburg",
@@ -26,15 +26,16 @@
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111",
         "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111",
         "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
-        "needs_verification": true,
-        "category_display": "Unknown",
+        "needs_verification": false,
+        "category_display": "FCK NWO / GRN",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
         "last_seen_ym": "2026-01",
-        "sticker_type": "FCK NWO FCK GRN"
+        "sticker_type": "FCK NWO FCK GRN",
+        "entity_key": "fck nwo fck grn"
       }
     },
     {
@@ -128,7 +129,7 @@
       "properties": {
         "id": "masto-115956523282215370",
         "status": "present",
-        "medium": "sticker",
+        "medium": "graffiti",
         "category": "1161",
         "entity_display": "1161",
         "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
@@ -170,7 +171,7 @@
       "properties": {
         "id": "masto-115956581847599362",
         "status": "present",
-        "medium": "sticker",
+        "medium": "graffiti",
         "category": "1161",
         "entity_display": "1161",
         "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
