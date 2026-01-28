@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 import time
+from pathlib import Path
 
 from .models import PipelineResult
 from .constants import ACC_FALLBACK, ACC_GPS
@@ -7,12 +8,15 @@ from ..adapters.mastodon_api import (
     fetch_timeline, reply_once, is_approved_by_fav
 )
 from ..domain.parse_post import (
-    strip_html, parse_location, has_image
+    strip_html, parse_location, has_image, parse_type_and_medium, parse_note
 )
 from ..domain.location import geocode_query_worldwide, snap_to_public_way
 from ..domain.dedup import attempt_dedup
+from ..domain.entities import EntityRegistry
+from ..domain.geojson_normalize import normalize_reports_geojson
 from ..utils.log import log_line
 from ..support.support_replies import build_reply_missing, build_reply_pending, build_needs_info_reply
+from ..support.state import load_trusted_accounts
 
 class Pipeline:
     def __init__(self, cfg: Dict[str, Any], cache: Dict[str, Any], pending: List[Dict[str, Any]], reports: Dict[str, Any]):
@@ -27,6 +31,10 @@ class Pipeline:
                 self.reports_ids.add(f["properties"]["item_id"])
 
         self.pipeline_result = PipelineResult()
+        
+        # Load entity registry from root entities.json
+        entities_path = Path("entities.json")
+        self.entity_registry = EntityRegistry.from_file(entities_path)
 
     def run_cycle(self):
         """Run one full cycle."""
@@ -132,6 +140,7 @@ class Pipeline:
 
     def _create_pending_item(self, st, item_id, tag, status, error):
         event = "removed" if "removed" in tag else "present"
+        content = strip_html(st.get("content") or "")  # Store stripped content for later parsing
         return {
             "id": item_id,
             "status_id": str(st.get("id")),
@@ -142,12 +151,15 @@ class Pipeline:
             "created_at": st.get("created_at"),
             "created_date": st.get("created_at")[:10] if st.get("created_at") else None,
             "error": error,
+            "content": content,  # Added for type parsing during publication
             "media": [a.get("url") for a in st.get("media_attachments", []) if a.get("type") == "image"]
         }
 
     def _process_pending(self):
         active_pending = []
-        trusted = set() # TODO load trusted
+        
+        # Load trusted accounts from secrets
+        trusted = load_trusted_accounts()
         
         for item in self.pending:
             if item["status"] != "PENDING":
@@ -163,15 +175,29 @@ class Pipeline:
         self.pending = active_pending
 
     def _publish_item(self, item):
-        # Create Feature
+        """Publish an item to reports.geojson with full type parsing and entity enrichment."""
+        # Parse sticker type and medium from the original post content
+        content = item.get("content", "")
+        medium, sticker_type, parse_err = parse_type_and_medium(content)
+        
+        # Extract note if present
+        note = parse_note(content)
+        
+        # Match entity from sticker_type
+        entity_key, entity_display = self.entity_registry.match_entity_from_type(sticker_type)
+        
+        # Create Feature with enriched metadata
         feat = {
             "type": "Feature",
             "properties": {
                 "item_id": item["id"],
                 "status": "present" if item["event"] == "present" else "removed",
-                "sticker_type": "unknown", # TODO parse type
+                "sticker_type": sticker_type,  # Actual parsed type, not "unknown"
+                "medium": medium.value if medium else "sticker",  # "sticker" or "graffiti"
                 "created_date": item.get("created_date"),
                 "media": item.get("media"),
+                "url": item.get("source"),
+                "notes": item.get("notes"),
                 "radius_m": item.get("accuracy_m", 50)
             },
             "geometry": {
@@ -180,6 +206,23 @@ class Pipeline:
             }
         }
         
+        # Add entity enrichment if matched
+        if entity_key:
+            feat["properties"]["entity_key"] = entity_key
+            feat["properties"]["entity_display"] = entity_display
+        
+        # Add note if present
+        # Add note if present - Already added in properties above but keeping for backward compat if needed or remove
+        if note:
+             # Ensure the note from parse_note overwrites if existing was empty
+             if not feat["properties"].get("notes"):
+                 feat["properties"]["notes"] = note
+        
+        # Add parse error if detected
+        if parse_err:
+            feat["properties"]["parse_error"] = parse_err
+        
+        # Attempt deduplication
         merged, dirty = attempt_dedup(feat, self.reports)
         
         if not merged:

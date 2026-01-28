@@ -54,15 +54,21 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
             # Run one cycle
             pipeline.run_cycle()
             
-            # Save state
-            # Note: Pipeline modifies objects in place
-            save_json(CACHE_PATH, cache)
-            save_json(PENDING_PATH, pipeline.pending)
-            save_json(REPORTS_PATH, reports)
+            # Entity Enrichment (Idle background task)
+            if bool(cfg.get("entity_enrich_enabled", True)):
+                from ..domain.entities import enrich_entities_idle
+                max_en = int(cfg.get("entity_enrich_max_per_run", 2))
+                enr = enrich_entities_idle(cfg, reports, max_per_run=max_en)
+                if enr:
+                    log_line(f"ENTITY_ENRICH | updated {enr}")
+                    # reports dirty, will be saved below
             
-            if one_shot:
-                break
-                
+            # Normalize Report Data (Consistency Fix)
+            try:
+                normalize_reports_geojson(reports, Path("entities.json"))
+            except Exception as e:
+                log_line(f"NORMALIZE ERROR | {e!r}", "ERROR")
+
             # Sleep
             time.sleep(60) # configurable delay
             
@@ -73,3 +79,13 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
             log_line(f"MAIN LOOP ERROR | err={e!r}", "ERROR")
             if one_shot: break
             time.sleep(60)
+        finally:
+            # CRITICAL: Always save state, even on error!
+            # This prevents losing "replied_to" cache and causing duplicates on restart.
+            try:
+                save_json(CACHE_PATH, cache)
+                save_json(PENDING_PATH, pipeline.pending)
+                save_json(REPORTS_PATH, reports)
+                # log_line("STATE SAVED", "INFO")
+            except Exception as se:
+                log_line(f"STATE SAVE ERROR | {se!r}", "ERROR")
