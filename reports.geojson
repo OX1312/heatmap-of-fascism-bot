@@ -33,7 +33,8 @@
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
-        "last_seen_ym": "2026-01"
+        "last_seen_ym": "2026-01",
+        "sticker_type": "FCK NWO FCK GRN"
       }
     },
     {
@@ -49,9 +50,9 @@
         "id": "masto-115951397353469503",
         "status": "present",
         "medium": "sticker",
-        "category": "Unknown",
-        "entity_display": "Unknown",
-        "entity_desc": "Unknown (needs verification)",
+        "category": "auf1",
+        "entity_display": "AUF1",
+        "entity_desc": "AUF1 (German original: \"Alternatives Unabhängiges Fernsehen, Kanal 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-de; auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
         "location_text": "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg",
@@ -61,14 +62,16 @@
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951397353469503",
         "description": "kind=sticker\ncat=auf1\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951397353469503",
         "name": "sticker auf1 2026-01 present #9503",
-        "needs_verification": true,
-        "category_display": "Unknown",
+        "needs_verification": false,
+        "category_display": "AUF1",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
-        "last_seen_ym": "2026-01"
+        "last_seen_ym": "2026-01",
+        "sticker_type": "auf1",
+        "entity_key": "auf1"
       }
     },
     {
@@ -84,9 +87,9 @@
         "id": "masto-115952968267262297",
         "status": "present",
         "medium": "sticker",
-        "category": "Unknown",
-        "entity_display": "Unknown",
-        "entity_desc": "Unknown (needs verification)",
+        "category": "AFD",
+        "entity_display": "AfD",
+        "entity_desc": "Far-right political party in Germany (German: \"Alternative für Deutschland\").",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
         "location_text": "53.851011, 10.702717",
@@ -96,14 +99,16 @@
         "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297",
         "description": "kind=sticker\ncat=AFD\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115952968267262297",
         "name": "sticker AFD 2026-01 present #2297",
-        "needs_verification": true,
-        "category_display": "Unknown",
+        "needs_verification": false,
+        "category_display": "AfD",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
-        "last_seen_ym": "2026-01"
+        "last_seen_ym": "2026-01",
+        "sticker_type": "AFD",
+        "entity_key": "AFD"
       }
     },
     {
@@ -119,9 +124,9 @@
         "id": "masto-115956523282215370",
         "status": "present",
         "medium": "sticker",
-        "category": "Unknown",
-        "entity_display": "Unknown",
-        "entity_desc": "Unknown (needs verification)",
+        "category": "1161",
+        "entity_display": "1161",
+        "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
         "location_text": "52.52222222222222, 13.370555555555557",
@@ -131,14 +136,16 @@
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956523282215370",
         "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956523282215370",
         "name": "sticker 1161 2026-01 present #5370",
-        "needs_verification": true,
-        "category_display": "Unknown",
+        "needs_verification": false,
+        "category_display": "1161",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
-        "last_seen_ym": "2026-01"
+        "last_seen_ym": "2026-01",
+        "sticker_type": "1161",
+        "entity_key": "1161"
       }
     },
     {
@@ -154,9 +161,9 @@
         "id": "masto-115956581847599362",
         "status": "present",
         "medium": "sticker",
-        "category": "Unknown",
-        "entity_display": "Unknown",
-        "entity_desc": "Unknown (needs verification)",
+        "category": "1161",
+        "entity_display": "1161",
+        "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
         "location_text": "51.955382, 12.895656",
@@ -166,14 +173,16 @@
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362",
         "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956581847599362",
         "name": "sticker 1161 2026-01 present #9362",
-        "needs_verification": true,
-        "category_display": "Unknown",
+        "needs_verification": false,
+        "category_display": "1161",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
-        "last_seen_ym": "2026-01"
+        "last_seen_ym": "2026-01",
+        "sticker_type": "1161",
+        "entity_key": "1161"
       }
     },
     {
