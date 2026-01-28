@@ -1,130 +1,135 @@
-## Repository structure (what is what)
-
-**Tracked (GitHub):**
-- `bot.py` – main bot
-- `config.json` – non-secret runtime config (NO tokens)
-- `reports.geojson` – public dataset for the map
-- `requirements.txt` – Python deps
-- `ox` – helper commands (start/stop/status)
-
-**NOT tracked (local runtime, gitignored):**
-- Local secrets/runtime data (not tracked)
-- `logs/`, `errors/` – runtime logs
-- `_backup/` – local backups
-- `pending.json`, `timeline_state.json`, `cache_geocode.json` – runtime state/cache
-
-### Safety rules
-- Never commit secrets or private operational data.
-- Keep internal ops/private workflows out of public docs.
-
 # Heatmap of Fascism (BETA)
 
-Heatmap of Fascism documents **fascist sticker propaganda in public space** via **explicit user reports** on Mastodon.
-Reports are **manually reviewed** and then shown on a public map to visualize **hotspots, persistence, and removals**.
+Heatmap of Fascism documents **fascist propaganda in public space** (currently: stickers, soon graffiti)
+via **explicit user reports** on Mastodon.
 
-**No passive scraping.** Only posts that intentionally report to the project are processed.
+The project visualizes **where**, **how often**, and **how persistently** such material appears — and when it is removed.
+
+**No scraping. No surveillance. No automation without intent.**  
+Only posts that explicitly report to the project are processed.
+
+---
 
 ## Links
-- Map:         https://umap.openstreetmap.de/de/map/heatmap_121255#6/52.194/11.646
-- Mastodon:    https://mastodon.social/@HeatmapofFascism
-- Repo:        https://github.com/OX1312/heatmap-of-fascism-bot
+- 🗺️ Map: https://umap.openstreetmap.de/de/map/heatmap_121255#6/52.194/11.646  
+- 🐘 Mastodon: https://mastodon.social/@HeatmapofFascism  
+- 💻 Repository: https://github.com/OX1312/heatmap-of-fascism-bot  
 
-## Report a sticker (Mastodon) — minimum requirements
-Your post must include:
+---
 
-1) **1 photo**
-2) **1 location** (exactly one)
-   - `lat, lon` (best), or
-   - `Street, City` (optional ~house number)
-3) **@HeatmapofFascism** mention (in the post or in a reply)
+## How reporting works (Mastodon)
 
-If **location is missing** (or too vague), the bot replies publicly and marks the report as **NEEDS_INFO**.
+A valid report must include:
 
-## Safety + legality (important)
-- If the photo contains **illegal / unconstitutional extremist symbols**, you must **blur / censor them before posting**.
-  Uncensored illegal symbols → report is rejected.
-- Don’t post private data (faces, license plates, addresses of private homes, etc.). Blur if needed.
+1) **Exactly one photo**
+2) **Exactly one location**
+   - Coordinates (`lat, lon`) — preferred  
+   - or `Street, City` (optional ~house number)
+3) **Mention `@HeatmapofFascism`**
+   - in the post **or** in a reply
 
-## Review model (anti-spam)
-Nothing appears on the public map without **manual review**.
-During beta, moderation rules may evolve; see `docs/MODERATION.md`.
+If the location is missing or too vague, the bot replies publicly and marks the report as **NEEDS_INFO**.
 
-## Data + output (high-level)
-- Single source of truth: `reports.geojson`
-- Locations are normalized to coordinates with **~10–50 m** stored uncertainty (rounding/jitter).
-- Bot feedback is posted as a **public reply** under the report by default.
+Nothing appears on the map without **manual review**.
 
-## Roadmap (short)
-- Better reporter feedback (clear rejection reasons + fix hints)
-- Stronger duplicate/proximity matching
-- Trust levels for reporters + distributed review
-- Messenger inbound (Telegram/Signal): photo + hashtag + location, optional “Chat = City” default
-- Multi-category reports beyond stickers (e.g., graffiti) with filters in the map/UI
+---
 
-### Mid-term
-- Reliability hardening: attachment handling, image-hash dedupe, spam throttling
-- Review workflow improvements (NEEDS_INFO loop, manager tooling)
-- Optional: per-city/region moderation teams (trust tiers)
+## Safety & legality (mandatory)
 
-More: `docs/ROADMAP.md`
+- If an image contains **illegal / unconstitutional extremist symbols**,  
+  **you must blur or censor them before posting**.
+- Uncensored illegal symbols → **automatic rejection**.
+- Do not publish private data:
+  faces, license plates, private homes, or personal identifiers.
+  Blur when in doubt.
 
+---
 
-## Developer setup
-See `docs/DEVELOPERS.md`
-    ## Major update and roadmap (Version 1.0)
+## Review & moderation (anti-spam)
 
-    The upcoming v1.0 release addresses data consistency, workflow automation and expansion beyond stickers. A detailed plan is documented in `docs/major_update_roadmap.md`.
+- All reports are **manually reviewed**.
+- During beta, moderation rules may evolve.
+- See: `docs/MODERATION.md`
 
-    Key points:
-    - **Alias handling**: synonyms and typos map to a single category.
-    - **Data check**: run `python tools/check_data.py` to detect missing fields, invalid coordinates and duplicates.
-    - **Data fix**: run `python tools/fix_data.py` to fill missing descriptions, remove invalid entries and merge duplicates. The original file is backed up automatically.
-    - **Extended schema**: support for graffiti and multi-category features.
-    - **Moderation tooling**: introduces a pending-review dashboard (CLI or web) for efficient validation of reports.
-    - **CI/CD**: automated tests and data validation on each commit.
+---
 
-    See the roadmap document for more details.
+## Data model (high-level)
 
-## Version 1.0 (major update)
+- **Single source of truth:** `reports.geojson`
+- Locations are stored with **~10–50 m uncertainty**
+  (rounding / jitter for safety).
+- Bot feedback is posted as a **public reply** by default.
 
-This release focuses on **data consistency**, **workflow automation**, and **multi-category support** (stickers + graffiti).
+Supported report kinds:
+- `sticker` (current)
+- `graffiti` (supported by schema, rolling out)
 
-Key points:
-- **Safe alias handling**: only spelling variants map to the *same* entity (never merge different organizations/parties).
-- **Data check**: `python3 tools/check_data.py` validates required fields, coordinates, duplicates.
-- **Data fix (deterministic only)**: `python3 tools/fix_data.py` normalizes formats and fills missing report fields from `entities.json` (never invents meanings).
-- **Extended schema**: supports graffiti and multi-category features.
-- **Moderation tooling**: pending-review workflow (CLI/web) for efficient validation.
-- **CI/CD**: automated tests and data validation on each commit.
-- **No self-modifying loops by default**: background entity enrichment is disabled to avoid unintended changes.
+Each report has exactly **one kind** and one **free-form category**.
 
-### Sources database (curated)
-We maintain a curated sources list in:
-- `docs/sources.json`
+---
+
+## Repository structure (overview)
+
+**Tracked (GitHub):**
+- `bot.py` – main application entry
+- `config.json` – runtime config (no secrets)
+- `reports.geojson` – public dataset
+- `requirements.txt` – dependencies
+- `ox` – helper CLI (no business logic)
+
+**Not tracked (runtime, local only):**
+- `logs/`, `errors/`
+- `_backup/`
+- `pending.json`, `timeline_state.json`, `cache_geocode.json`
+- `support/` runtime state files
 
 Rules:
-- `entities.json` is the **single source of truth** for `display` and `desc`.
-- Automated tooling must **never overwrite** curated `display/desc`.
-- If enrichment is enabled later, it may only write to separate *auto* fields (e.g. `desc_en_auto`) or set `needs_desc=true`.
+- Secrets are never committed.
+- Runtime files are never imported as logic.
+- Internal ops stay out of public docs.
 
-See also:
-- `docs/DEVELOPERS.md`
-- `docs/major_update_roadmap.md`
+---
 
+## Architecture & internals
 
-## Entity Policy (v1.0.1): Verify or Unknown
+This repository follows a strict separation of concerns:
+- pure domain logic
+- isolated adapters
+- pausable delete operations
+- explicit, time-correct logging
 
-**Hard rule:** The bot must never guess meanings for new codes/names/numbers.
+**Canonical architecture specification:**
+→ `docs/ARCHITECTURE.md`
 
-- Only entities explicitly curated in `entities.json` are shown with a real name/description.
-- Unknown or unclear inputs remain:
+If documentation conflicts:
+`ARCHITECTURE.md` always wins over README.
 
-  - `entity_display = "Unknown"`
-  - `entity_desc = "Unknown (needs verification)"`
-  - `needs_verification = true`
+---
 
-- New entities are added **only after verification** using trusted references in `docs/sources.json`.
-- Automated enrichment must never overwrite curated `display/desc`.
+## Roadmap (short)
 
-This prevents incorrect merges (e.g. numeric codes vs. organizations).
+- Clearer reporter feedback and fix hints
+- Better duplicate & proximity detection
+- Trust levels for reporters and reviewers
+- Multi-category map filters (stickers + graffiti)
+- Optional messenger ingestion (Telegram / Signal)
 
+Details:
+→ `docs/ROADMAP.md`
+
+---
+
+## Developer setup
+
+See:
+→ `docs/DEVELOPERS.md`
+
+---
+
+## Project status
+
+This project is in **active beta**.
+Stability, correctness, and auditability take priority over speed.
+
+Heatmap of Fascism is built to be **slow, careful, and correct** —
+not fast and wrong.
