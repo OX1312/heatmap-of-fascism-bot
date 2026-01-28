@@ -32,7 +32,8 @@ def setup_log_paths():
 
 def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
     setup_log_paths()
-    log_line("MAIN LOOP STARTED (Refactored Bot)", "INFO")
+    import hm
+    log_line(f"MAIN LOOP STARTED (Refactored Bot v{hm.__version__})", "INFO")
     
     # 1. Credentials Check
     if not verify_credentials(cfg):
