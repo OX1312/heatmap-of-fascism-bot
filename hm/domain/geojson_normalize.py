@@ -19,6 +19,23 @@ def normalize_reports_geojson(reports: Dict[str, Any], entities_path: Path) -> N
             entities = json.loads(entities_path.read_text(encoding="utf-8"))
     except Exception:
         entities = {}
+        
+    # Load sources
+    sources_map = {}
+    try:
+        # Assume sources.json is in same dir as entities.json or docs/sources.json
+        # We try strict path relative to entities_path parent or explicit docs/
+        sources_path = entities_path.parent / "docs" / "sources.json"
+        if not sources_path.exists():
+            sources_path = entities_path.parent / "sources.json"
+            
+        if sources_path.exists():
+             src_list = json.loads(sources_path.read_text(encoding="utf-8"))
+             for s in src_list:
+                 if s.get("id"):
+                     sources_map[s["id"]] = s
+    except Exception:
+        pass
 
     def _ym_fields(d: str):
         # expects ISO date 'YYYY-MM-DD' (or empty)
@@ -112,6 +129,16 @@ def normalize_reports_geojson(reports: Dict[str, Any], entities_path: Path) -> N
             p["category"] = ek
             # category_display: short UI label (e.g. "AfD")
             p["category_display"] = p["entity_display"] or ek
+            
+            # Resolve source URL
+            s_keys = ent.get("sources")
+            if s_keys and isinstance(s_keys, list) and len(s_keys) > 0:
+                # Pick first valid source
+                for sk in s_keys:
+                    src_obj = sources_map.get(sk)
+                    if src_obj and src_obj.get("url"):
+                        p["entity_source_url"] = src_obj["url"]
+                        break
         else:
             # keep the raw key for filtering/statistics, but do not assign meaning
             if ek:
