@@ -383,7 +383,10 @@ RE_ADDRESS = re.compile(r"^(.+?)\s+(\d+[a-zA-Z]?)\s*,\s*(.+)$")  # "Street 12, C
 RE_STREET_CITY = re.compile(r"^(.+?)\s*,\s*(.+)$")  # "Street, City"
 RE_CROSS = re.compile(r"^(.+?)\s*(?:/| x | & )\s*(.+?)\s*,\s*(.+)$", re.IGNORECASE)  # "A / B, City"
 RE_INTERSECTION = re.compile(r"^\s*intersection of\s+(.+?)\s+and\s+(.+?)\s*,\s*(.+?)\s*$", re.IGNORECASE)
-RE_STICKER_TYPE = re.compile(r"(?im)^\s*#(?:sticker|graffiti|grafitti)_(?:type|typ)\s*:?\s*([^\n#@]{1,200}?)(?=\s*(?:(ort|location|place)\s*:|@|#|$))")
+RE_REPORT_TYPE = re.compile(
+    r"(?im)^\s*#(?P<kind>sticker|graffiti|grafitti)_(?:type|typ)\s*:?\s*(?P<val>[^\n#@]{1,200}?)"
+    r"(?=\s*(?:(ort|location|place)\s*:|@|#|$))"
+)
 RE_NOTE = re.compile(r"(?is)(?:^|\s)#note\s*:\s*(.+?)(?=(?:\s#[\w_]+)|$)")
 
 # =========================
@@ -547,11 +550,34 @@ def has_image(attachments: List[Dict[str, Any]]) -> bool:
             return True
     return False
 
+def parse_type_and_medium(text: str):
+    """Return (medium, sticker_type, err).
+    medium: 'sticker' | 'graffiti' | None
+    err: None | 'conflict'
+    Conflict if BOTH sticker_type and graffiti_type appear in the same post.
+    """
+    kinds = []
+    vals = []
+    for m in RE_REPORT_TYPE.finditer(text or ""):
+        k = (m.group("kind") or "").strip().lower()
+        if k == "grafitti":
+            k = "graffiti"
+        v = (m.group("val") or "").strip()
+        if v:
+            kinds.append(k)
+            vals.append(v)
+    if not kinds:
+        return None, "unknown", None
+    has_st = "sticker" in kinds
+    has_gr = "graffiti" in kinds
+    if has_st and has_gr:
+        return None, "unknown", "conflict"
+    medium = "graffiti" if has_gr else "sticker"
+    return medium, (vals[0] if vals and vals[0] else "unknown"), None
+
 def parse_sticker_type(text: str) -> str:
-    m = RE_STICKER_TYPE.search(text)
-    if not m:
-        return "unknown"
-    t = m.group(1).strip()
+    # legacy wrapper: keep existing callers working
+    _m, t, _e = parse_type_and_medium(text)
     return t if t else "unknown"
 
 def parse_note(text: str) -> str:
@@ -2082,6 +2108,7 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
     budget = max(0, int(budget))
     now = int(time.time())
     changed = 0
+    deleted_idxs = []
 
     def _ts(siso: str) -> str:
         # keep ISO seconds from API ("2026-...Z")
@@ -2100,25 +2127,26 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
         try:
             st = fetch_status(cfg, inst, sid)
         except StatusDeleted as e:
-            # source deleted: keep point, but mark unknown + note (do NOT delete)
-            props["status"] = "unknown"
-            n = (props.get("notes") or "")
-            if "source deleted" not in n.lower():
-                props["notes"] = (n + " | source deleted").strip(" |")
+            # source deleted (auth 404/410): DROP feature from reports.geojson
+            deleted_idxs.append(idx)
             changed += 1
-            ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            print(f"source_deleted_keep status_id={sid} reason={e}")
+            print(f"source_deleted_drop status_id={sid} reason={e}")
             continue
         except Exception:
             st = None
 
         if st:
             txt = _strip_html_text(st.get("content") or "")
-            has_removed, has_seen, stype = _extract_flags_and_type(txt)
+            has_removed, has_seen, _stype = _extract_flags_and_type(txt)
+            m2, t2, terr2 = parse_type_and_medium(txt)
 
-            if stype and stype != old_type:
-                props["sticker_type"] = stype
-                changed += 1
+            if terr2 != "conflict":
+                if t2 and t2 != old_type:
+                    props["sticker_type"] = t2
+                    changed += 1
+                if m2 and (str(props.get("medium") or "").strip().lower() != str(m2).strip().lower()):
+                    props["medium"] = m2
+                    changed += 1
 
             # If user edited source to removed/seen, treat as event at "edited_at" else created_at
             ev_time = _ts(st.get("edited_at") or st.get("created_at") or "")
@@ -2152,11 +2180,16 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
                 if not isinstance(d, dict):
                     continue
                 d_txt = _strip_html_text(d.get("content") or "")
-                has_removed, has_seen, stype = _extract_flags_and_type(d_txt)
+                has_removed, has_seen, _stype = _extract_flags_and_type(d_txt)
                 d_time = _ts(d.get("created_at") or "")
-                if stype and stype != (props.get("sticker_type") or ""):
-                    props["sticker_type"] = stype
-                    changed += 1
+                m2, t2, terr2 = parse_type_and_medium(d_txt)
+                if terr2 != "conflict":
+                    if t2 and t2 != (props.get("sticker_type") or ""):
+                        props["sticker_type"] = t2
+                        changed += 1
+                    if m2 and (str(props.get("medium") or "").strip().lower() != str(m2).strip().lower()):
+                        props["medium"] = m2
+                        changed += 1
                 if has_seen and d_time:
                     if (best_seen is None) or (d_time > best_seen[0]):
                         best_seen = (d_time, )
@@ -2180,6 +2213,14 @@ def update_features_from_context(reports: Dict[str, Any], cfg: Dict[str, Any], b
         # normalize: removed implies not "present"
         if props.get("status") == "removed" and not props.get("removed_at"):
             props["removed_at"] = props.get("last_seen") or props.get("first_seen")
+
+    # Drop features whose source post is deleted (404/410)
+    if deleted_idxs:
+        for i in sorted(set(deleted_idxs), reverse=True):
+            try:
+                feats.pop(i)
+            except Exception:
+                pass
 
     if changed:
         ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -2489,6 +2530,7 @@ def make_product_feature(
     status_id: Optional[str],
     instance_url: Optional[str],
     status: str,  # present | removed | unknown
+    medium: object,
     sticker_type: str,
     created_date: str,
     lat: float,
@@ -2511,6 +2553,7 @@ def make_product_feature(
             "instance_url": (str(instance_url) if instance_url else None),
 
             "status": status,
+            "medium": (str(medium) if medium else None),
             "sticker_type": sticker_type,
             "notes": notes,
 
@@ -3606,7 +3649,44 @@ def main_once():
             continue
 
         created_date = iso_date_from_created_at(st.get("created_at"))
-        sticker_type = parse_sticker_type(text)
+        medium, sticker_type, terr = parse_type_and_medium(text)
+        if terr == "conflict":
+            _sid = str(status_id)
+            needs_item = {
+                "id": item_id,
+                "status_id": _sid,
+                "status": "NEEDS_INFO",
+                "event": event,
+                "tag": tag,
+                "source": url,
+                "created_at": st.get("created_at"),
+                "created_date": created_date,
+                "lat": 0.0,
+                "lon": 0.0,
+                "accuracy_m": int(ACC_FALLBACK),
+                "radius_m": int(ACC_FALLBACK),
+                "geocode_method": "none",
+                "location_text": "",
+                "sticker_type": "unknown",
+                "medium": None,
+                "removed_at": iso_date_from_created_at(st.get("created_at")) if event == "removed" else None,
+                "media": media_urls,
+                "error": "type_conflict",
+                "replied": [],
+            }
+            msg = (
+                "🤖 ⚠️ Conflicting type tags\n\n"
+                "Please use ONE matching type tag only:\n"
+                "• #sticker_type … OR\n"
+                "• #graffiti_type …\n\n"
+                "FCK RACISM. ✊ ALERTA ALERTA."
+            )
+            if reply_once(cfg, cache, f"type_conflict:{_sid}", _sid, msg):
+                needs_item["replied"].append("type_conflict")
+            pending.append(needs_item)
+            pending_by_source[url] = needs_item
+            added_pending += 1
+            continue
         notes = parse_note(text)
 
         entity_raw, entity_key = parse_entity(text)
@@ -3824,6 +3904,7 @@ def main_once():
             "geocode_method": geocode_method,
             "location_text": location_text,
 
+            "medium": medium,
             "sticker_type": sticker_type,
             "notes": notes,
 
@@ -3871,7 +3952,10 @@ def main_once():
                         item["radius_m"] = int(ACC_GPS)
                         item["geocode_method"] = "gps"
                         item["location_text"] = str(lat) + ", " + str(lon)
-                        item["sticker_type"] = parse_sticker_type(text)
+                        m2, t2, terr2 = parse_type_and_medium(text)
+                        if terr2 != "conflict":
+                            item["sticker_type"] = t2
+                            item["medium"] = m2
                         item["error"] = None
                         item["status"] = "PENDING"
                         item["replied_pending"] = None
@@ -3926,6 +4010,7 @@ def main_once():
             status_id=str(item.get("status_id")) if item.get("status_id") else None,
             instance_url=str(cfg.get("instance_url")) if cfg.get("instance_url") else None,
             status=new_status,
+            medium=str(item.get("medium") or "") or None,
             sticker_type=str(item.get("sticker_type") or "unknown"),
             created_date=created_date,
             lat=float(item["lat"]),
@@ -3963,6 +4048,12 @@ def main_once():
             ex_lon, ex_lat = float(coords[0]), float(coords[1])
             ex_r = int(p.get("radius_m") or p.get("accuracy_m") or ACC_DEFAULT)
             ex_type = norm_type(p.get("sticker_type"))
+
+            new_med = str(new_p.get("medium") or "").strip().lower()
+            ex_med = str(p.get("medium") or "").strip().lower()
+            if new_med and ex_med and new_med != ex_med:
+                continue
+
 
             # type rule: must match OR one side unknown
             if not (new_type == "unknown" or ex_type == "unknown" or new_type == ex_type):
