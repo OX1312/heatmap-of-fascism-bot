@@ -1,0 +1,17 @@
+<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1;margin:0;padding:0;color:#000;letter-spacing:0">
+ <img src="{media0}" style="width:202px;height:151px;object-fit:cover;border-radius:12px;display:block;margin:0 auto;padding:0" />
+ <div style="margin:0;padding:0;color:#000;white-space:nowrap"><b>Category</b>: {category_display}</div>
+  <div style="margin:0;padding:0;color:#000;white-space:nowrap"><b>Status</b>: {status}</div>
+  <div style="margin:0;padding:0;color:#000;white-space:nowrap"><b>First</b>: {first_seen}</div>
+  <div style="margin:0;padding:0;color:#000;white-space:nowrap"><b>Last</b>: {last_seen}</div>
+<div style="margin:0;padding:0;color:#000"><b>Description</b>:</div><div style="margin:0;padding:0;color:#000;font-weight:400;white-space:pre-line;word-break:normal;overflow-wrap:normal;hyphens:none">
+    {entity_desc}</div> <div style="margin:0;padding:0;color:#000">
+    <a href="{url}" target="_blank" rel="noopener" style="color:#000;text-decoration:underline">Open Mastodon URL</a>
+  </div>
+
+  <div style="margin:0;padding:0;color:#000;white-space:pre-line;word-break:normal;overflow-wrap:normal;hyphens:none">
+    {notes} </div><div style="margin:0;padding:0;color:#000;overflow-wrap:anywhere;word-break:normal;hyphens:none">
+    <b>ID</b>: {id}
+  </div>
+
+</div>
