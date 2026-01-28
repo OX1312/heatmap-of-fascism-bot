@@ -88,5 +88,13 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
                 save_json(PENDING_PATH, pipeline.pending)
                 save_json(REPORTS_PATH, reports)
                 # log_line("STATE SAVED", "INFO")
+                
+                # Auto Push to GitHub
+                try:
+                    from ..adapters.git_ops import auto_git_push_reports
+                    auto_git_push_reports(cfg, ROOT, "reports.geojson", reason="auto-update")
+                except Exception as ex:
+                    log_line(f"GIT AUTO PUSH FAILED | {ex!r}", "ERROR")
+
             except Exception as se:
                 log_line(f"STATE SAVE ERROR | {se!r}", "ERROR")

@@ -214,7 +214,8 @@ class TestSnapToPublicWay:
                         {"lat": 52.5, "lon": 13.41}
                     ]
                 }]
-            }
+            },
+            {"elements": []}  # Building check
         ]
         
         lat, lon, note = snap_to_public_way(52.50005, 13.405, "TestAgent")

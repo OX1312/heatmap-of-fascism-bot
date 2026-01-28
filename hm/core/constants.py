@@ -10,4 +10,13 @@ RE_REPORT_TYPE = re.compile(
     r"(?im)^\s*#(?P<kind>sticker|graffiti|grafitti)_(?:type|typ)\s*:?\s*(?P<val>[^\n#@]{1,200}?)"
     r"(?=\s*(?:(ort|location|place)\s*:|@|#|$))"
 )
+RE_NOTE = re.compile(r"(?is)(?:^|\s)#note\s*:\s*(.+?)(?=(?:\s#[\w_]+)|$)")
 ACC_FALLBACK = 2000
+ACC_FALLBACK = 2000
+ACC_GPS = 20
+
+# Location / API Constants
+OVERPASS_TIMEOUT_S = 45
+NOMINATIM_TIMEOUT_S = 15
+MAX_GEOM_POINTS_PER_STREET = 100
+MAX_SEARCH_RADIUS_M = 500

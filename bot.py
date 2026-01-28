@@ -9,6 +9,9 @@ import os
 from pathlib import Path
 
 # Ensure we can import from local directory
+import sys
+print(f"DEBUG: sys.executable={sys.executable}")
+print(f"DEBUG: sys.version={sys.version}")
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
