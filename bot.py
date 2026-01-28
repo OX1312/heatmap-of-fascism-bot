@@ -368,8 +368,7 @@ MANAGER_DM_STATE_PATH = SECRETS_DIR / "manager_dm_state.json"
 MANAGER_UPDATE_STATE_PATH = SECRETS_DIR / "manager_update_state.json"
 
 SUPPORT_DIR = ROOT / "support"
-SUPPORT_REQUESTS_PATH = SUPPORT_DIR / "support_requests.json"
-SUPPORT_STATE_PATH = SUPPORT_DIR / "support_state.json"
+SUPPORT_LOG_PATH = SUPPORT_DIR / "support.log"
 
 CACHE_PATH = ROOT / "cache_geocode.json"
 PENDING_PATH = ROOT / "pending.json"
@@ -1486,101 +1485,13 @@ def send_direct_message(cfg: Dict[str, Any], to_user: str, body: str) -> bool:
         return False
 
 
-def get_conversations(cfg: Dict[str, Any], limit: int = 40) -> List[Dict[str, Any]]:
-    """Fetch DM conversations (threads containing 'direct' visibility posts)."""
-    instance = cfg["instance_url"].rstrip("/")
-    url = f"{instance}/api/v1/conversations"
-    r = _api_get(cfg, url, params={"limit": int(limit)})
-    data = r.json()
-    return data if isinstance(data, list) else []
-
-def _ensure_support_files():
-    SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
-    if not SUPPORT_REQUESTS_PATH.exists():
-        save_json(SUPPORT_REQUESTS_PATH, [])
-    if not SUPPORT_STATE_PATH.exists():
-        save_json(SUPPORT_STATE_PATH, {"seen_status_ids": []})
-
-def ingest_support_requests(cfg: Dict[str, Any], managers_set: set) -> int:
-    """
-    Collect manager support DMs:
-      - DM to @HeatmapofFascism
-      - contains hashtag #support_anfrage
-      - sender must be a manager (account we follow)
-    Writes to: support/support_requests.json (append, dedup by status_id)
-    """
-    try:
-        _ensure_support_files()
-        st = load_json(SUPPORT_STATE_PATH, {"seen_status_ids": []}) or {"seen_status_ids": []}
-        seen = set(str(x) for x in (st.get("seen_status_ids") or []))
-
-        reqs = load_json(SUPPORT_REQUESTS_PATH, []) or []
-        if not isinstance(reqs, list):
-            reqs = []
-
-        added = 0
-        convs = get_conversations(cfg, limit=int(cfg.get("support_poll_limit", 40) or 40))
-        for c in convs:
-            last = (c or {}).get("last_status") or {}
-            sid = str(last.get("id") or "").strip()
-            if not sid or sid in seen:
-                continue
-
-            acc = (last.get("account") or {}) if isinstance(last.get("account"), dict) else {}
-            sender = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
-            if not sender or sender not in (managers_set or set()):
-                seen.add(sid)
-                continue
-
-            txt = strip_html(last.get("content", "") or "")
-            if "#support_anfrage" not in txt.lower():
-                # not a support request, but mark seen to avoid reprocessing
-                seen.add(sid)
-                continue
-
-            reqs.append({
-                "status_id": sid,
-                "created_at": last.get("created_at"),
-                "sender": sender,
-                "url": last.get("url"),
-                "text": txt.strip(),
-            })
-            added += 1
-            seen.add(sid)
-
-        if added:
-            save_json(SUPPORT_REQUESTS_PATH, reqs)
-        st["seen_status_ids"] = sorted(seen)
-        save_json(SUPPORT_STATE_PATH, st)
-        return int(added)
-    except Exception as e:
-        try:
-            _append(ERROR_LOG_PATH, f"{_now_iso()} support_ingest ERROR err={e!r}")
-        except Exception:
-            pass
-        return 0
-def build_manager_welcome_text(admin_handle: str = "@buntepanther") -> str:
-    return (
-        "🤖 🚀 Welcome — you’re now a Heatmap of Fascism Manager.\n\n"
-        "You can approve reports for the public map:\n"
-        "⭐ Favourite a report post to publish it.\n\n"
-        "Rules (short):\n"
-        "• Post must mention @HeatmapofFascism\n"
-        "• Location required: lat, lon OR Street, City\n"
-        "• Optional: #sticker_type: party/symbol/slogan\n"
-        "• Optional: #sticker_removed (marks removed)\n"
-        "• Optional: #sticker_seen (updates last confirmed)\n\n"
-        f"Support: write a private message to @HeatmapofFascism with #support_anfrage.\n\nSupport/Admin: {admin_handle}\n"
-        "FCK RACISM. ✊ ALERTA ALERTA."
-    )
-
 def build_manager_update_text(version: str, admin_handle: str = "@buntepanther", msg: str | None = None) -> str:
     base = (msg or "").strip()
     if not base:
         base = f"Update: bot is now v{version}."
     return (
         f"🤖 🚀 Heatmap of Fascism Update\n\n{base}\n\n"
-        f"Support: write a private message to @HeatmapofFascism with #support_anfrage.\n\nSupport/Admin: {admin_handle}\n"
+        f"Support (public): post with @HeatmapofFascism + #support and a short description (including bugs).\n\nSupport/Admin: {admin_handle}\n"
         "FCK RACISM. ✊ ALERTA ALERTA."
     )
 
@@ -1735,179 +1646,6 @@ def get_conversations(cfg: Dict[str, Any], limit: int = 40) -> List[Dict[str, An
         except Exception:
             pass
         return []
-
-def mark_conversation_read(cfg: Dict[str, Any], conv_id: str) -> None:
-    """POST /api/v1/conversations/:id/read. Requires write:conversations."""
-    if not conv_id:
-        return
-    instance = cfg["instance_url"].rstrip("/")
-    url = f"{instance}/api/v1/conversations/{conv_id}/read"
-    try:
-        _api_post(cfg, url, data={})
-    except Exception as e:
-        try:
-            _append(ERROR_LOG_PATH, f"{_now_iso()} support_mark_read ERROR id={conv_id} err={e!r}")
-        except Exception:
-            pass
-
-def process_support_requests(cfg: Dict[str, Any], trusted_set: set) -> int:
-    """
-    Managers can DM the bot with #support_anfrage.
-    Stores requests in support/support_requests.json and marks the conversation as read.
-    Stable behavior:
-      - only unread conversations
-      - only if sender is in trusted_set
-      - dedupe by last_status.id
-      - if API scopes missing: skip + log error, bot continues
-    """
-    if not bool(cfg.get("support_enabled", True)):
-        return 0
-
-    SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
-    ensure_array_file(SUPPORT_REQUESTS_PATH)
-    ensure_object_file(SUPPORT_STATE_PATH)
-
-    tag = str(cfg.get("support_hashtag") or "support_anfrage").strip()
-    if tag.startswith("#"):
-        tag = tag[1:]
-
-    state = load_json(SUPPORT_STATE_PATH, {}) or {}
-    if not isinstance(state, dict):
-        state = {}
-    seen = set(str(x) for x in (state.get("seen_status_ids") or []))
-    if len(seen) > 500:
-        seen = set(list(seen)[-250:])
-
-    reqs = load_json(SUPPORT_REQUESTS_PATH, []) or []
-    if not isinstance(reqs, list):
-        reqs = []
-
-    added = 0
-    convs = get_conversations(cfg, limit=int(cfg.get("support_limit", 40) or 40))
-    for c in convs:
-        if not isinstance(c, dict):
-            continue
-        if not c.get("unread"):
-            continue
-        conv_id = str(c.get("id") or "").strip()
-        ls = c.get("last_status") or {}
-        if not isinstance(ls, dict):
-            continue
-        sid = str(ls.get("id") or "").strip()
-        if not sid or sid in seen:
-            continue
-
-        acc = (ls.get("account") or {}) if isinstance(ls.get("account"), dict) else {}
-        sender = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
-
-        if not sender or (sender not in set(trusted_set or [])):
-            continue
-
-        txt = strip_html(str(ls.get("content") or ""))
-        if not _has_hashtag(txt, tag):
-            continue
-
-        req = {
-            "ts": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-            "from": sender,
-            "conversation_id": conv_id,
-            "status_id": sid,
-            "text": txt.strip(),
-            "url": str(ls.get("url") or ""),
-        }
-        reqs.append(req)
-        seen.add(sid)
-        added += 1
-
-        mark_conversation_read(cfg, conv_id)
-        time.sleep(0.15)
-
-    if added:
-        save_json(SUPPORT_REQUESTS_PATH, reqs)
-        state["seen_status_ids"] = list(seen)[-500:]
-        save_json(SUPPORT_STATE_PATH, state)
-
-    return int(added)
-def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None = None, max_id: str | None = None, limit: int = 40) -> List[Dict[str, Any]]:
-    instance = cfg["instance_url"].rstrip("/")
-    tag = tag.lstrip("#")
-    tag_key = tag.lower()
-
-    # GLOBAL cooldown guard (shared across endpoints): if we hit 429 anywhere, pause ALL polling briefly.
-    now = time.time()
-    g_until = float(globals().get("_GLOBAL_RL_UNTIL", 0.0) or 0.0)
-    if now < g_until:
-        # throttle WAIT spam (max once per 60s)
-        try:
-            last = float(globals().get("_GLOBAL_RL_LASTLOG_TS", 0.0) or 0.0)
-            if (now - last) >= 60.0:
-                globals()["_GLOBAL_RL_LASTLOG_TS"] = now
-                log_line(f"WAIT | global_api | {int(g_until - now)}s | rate_limited")
-        except Exception:
-            pass
-        return []
-
-    # Cooldown guard: if we were rate-limited recently, do NOT even hit the API.
-    now = time.time()
-    until = float(_HASHTAG_RL_UNTIL.get(tag_key, 0.0))
-    if now < until:
-        return []
-
-    url = f"{instance}/api/v1/timelines/tag/{tag}"
-    headers = {"Authorization": f"Bearer {cfg['access_token']}"}
-
-    params: Dict[str, Any] = {"limit": int(limit)}
-    if since_id:
-        params["since_id"] = str(since_id)
-    if max_id:
-        params["max_id"] = str(max_id)
-
-    r = requests.get(url, headers=headers, params=params, timeout=MASTODON_TIMEOUT_S)
-
-    # Rate limit safety: NEVER crash the main loop on 429.
-    if r.status_code == 429:
-        ra = (r.headers or {}).get("Retry-After")
-        try:
-            wait_s = max(1, min(300, int(str(ra).strip()))) if ra else 30
-        except Exception:
-            wait_s = 30
-
-        # Set per-tag cooldown so we don't hammer again next loop
-        _HASHTAG_RL_UNTIL[tag_key] = time.time() + float(wait_s)
-        # GLOBAL cooldown so other tags/endpoints don't immediately trigger more 429s
-        try:
-            _g = float(globals().get("_GLOBAL_RL_UNTIL", 0.0) or 0.0)
-            _new = time.time() + float(wait_s)
-            if _new > _g:
-                globals()["_GLOBAL_RL_UNTIL"] = _new
-        except Exception:
-            pass
-
-        # Throttle 429 log spam (max once per 60s per tag)
-        now = time.time()
-        lastlog = float(_HASHTAG_RL_LASTLOG.get(tag_key, 0.0))
-        if (now - lastlog) >= 60.0:
-            log_line(f"WAIT | tag={tag} | {wait_s}s | rate_limited")
-            _HASHTAG_RL_LASTLOG[tag_key] = now
-
-        time.sleep(wait_s)
-        return []
-
-    # Non-200: log minimal + return [] (no crash)
-    if r.status_code != 200:
-        try:
-            log_line(f"ERROR | hashtag_timeline | tag={tag} http={r.status_code}")
-        except Exception:
-            pass
-        return []
-
-    data = r.json()
-    if isinstance(data, list) and len(data) > 0:
-        return data
-    return []
-class StatusDeleted(Exception):
-    pass
-
 
 def status_exists(cfg: dict, status_id: str) -> bool:
     instance = cfg["instance_url"].rstrip("/")
@@ -2528,7 +2266,7 @@ def build_reply_ok() -> str:
 
     return (
         "🤖 Report received. 🚀\n"
-        "Trusted accounts: ⭐ Favourite this post to add your report to the map.\n"
+        "Review process: A trusted reviewer will review your report. If it’s OK, it will be added to the map automatically.\n"
         "\n"
         "Pro tips (optional):\n"
         "• Type: #sticker_type: party / symbol / slogan\n"
@@ -2542,7 +2280,7 @@ def build_reply_ok() -> str:
 def build_reply_pending() -> str:
     return (
         "🤖 Report received. 🚀\n"
-        "Trusted accounts: ⭐ Favourite this post to add your report to the map.\n"
+        "Review process: A trusted reviewer will review your report. If it’s OK, it will be added to the map automatically.\n"
         "FCK RACISM. ✊ ALERTA ALERTA."
     )
 
@@ -2551,7 +2289,7 @@ def build_reply_improve(hints: list[str]) -> str:
     # keep behaviour: show optional hints, but in EN + new style
     lines = [
         "🤖 Report received. 🚀",
-        "Trusted accounts: ⭐ Favourite this post to add your report to the map.",
+        "Review process: A trusted reviewer will review your report. If it’s OK, it will be added to the map automatically.",
     ]
     if hints:
         lines.append("")
@@ -2949,6 +2687,86 @@ def _manager_daily_summary_if_changed(cfg: dict, *, submissions: int, reviewed: 
 # =========================
 # MAIN
 # =========================
+def get_hashtag_timeline(cfg: Dict[str, Any], tag: str, *, since_id: str | None = None, max_id: str | None = None, limit: int = 40) -> List[Dict[str, Any]]:
+    instance = cfg["instance_url"].rstrip("/")
+    tag = tag.lstrip("#")
+    tag_key = tag.lower()
+
+    # GLOBAL cooldown guard (shared across endpoints): if we hit 429 anywhere, pause ALL polling briefly.
+    now = time.time()
+    g_until = float(globals().get("_GLOBAL_RL_UNTIL", 0.0) or 0.0)
+    if now < g_until:
+        # throttle WAIT spam (max once per 60s)
+        try:
+            last = float(globals().get("_GLOBAL_RL_LASTLOG_TS", 0.0) or 0.0)
+            if (now - last) >= 60.0:
+                globals()["_GLOBAL_RL_LASTLOG_TS"] = now
+                log_line(f"WAIT | global_api | {int(g_until - now)}s | rate_limited")
+        except Exception:
+            pass
+        return []
+
+    # Cooldown guard: if we were rate-limited recently, do NOT even hit the API.
+    now = time.time()
+    until = float(_HASHTAG_RL_UNTIL.get(tag_key, 0.0))
+    if now < until:
+        return []
+
+    url = f"{instance}/api/v1/timelines/tag/{tag}"
+    headers = {"Authorization": f"Bearer {cfg['access_token']}"}
+
+    params: Dict[str, Any] = {"limit": int(limit)}
+    if since_id:
+        params["since_id"] = str(since_id)
+    if max_id:
+        params["max_id"] = str(max_id)
+
+    r = requests.get(url, headers=headers, params=params, timeout=MASTODON_TIMEOUT_S)
+
+    # Rate limit safety: NEVER crash the main loop on 429.
+    if r.status_code == 429:
+        ra = (r.headers or {}).get("Retry-After")
+        try:
+            wait_s = max(1, min(300, int(str(ra).strip()))) if ra else 30
+        except Exception:
+            wait_s = 30
+
+        # Set per-tag cooldown so we don't hammer again next loop
+        _HASHTAG_RL_UNTIL[tag_key] = time.time() + float(wait_s)
+        # GLOBAL cooldown so other tags/endpoints don't immediately trigger more 429s
+        try:
+            _g = float(globals().get("_GLOBAL_RL_UNTIL", 0.0) or 0.0)
+            _new = time.time() + float(wait_s)
+            if _new > _g:
+                globals()["_GLOBAL_RL_UNTIL"] = _new
+        except Exception:
+            pass
+
+        # Throttle 429 log spam (max once per 60s per tag)
+        now = time.time()
+        lastlog = float(_HASHTAG_RL_LASTLOG.get(tag_key, 0.0))
+        if (now - lastlog) >= 60.0:
+            log_line(f"WAIT | tag={tag} | {wait_s}s | rate_limited")
+            _HASHTAG_RL_LASTLOG[tag_key] = now
+
+        time.sleep(wait_s)
+        return []
+
+    # Non-200: log minimal + return [] (no crash)
+    if r.status_code != 200:
+        try:
+            log_line(f"ERROR | hashtag_timeline | tag={tag} http={r.status_code}")
+        except Exception:
+            pass
+        return []
+
+    data = r.json()
+    if isinstance(data, list) and len(data) > 0:
+        return data
+    return []
+class StatusDeleted(Exception):
+    pass
+
 def iter_statuses(cfg: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str, Any]]]:
     """
     Yields: (tag, event, status_dict)
@@ -3427,8 +3245,6 @@ def main_once():
     ensure_array_file(PENDING_PATH)
     ensure_reports_file()
     SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
-    ensure_array_file(SUPPORT_REQUESTS_PATH)
-    ensure_object_file(SUPPORT_STATE_PATH)
 
     cfg = load_json(CFG_PATH, None)
     # PRO startup banner (once)
@@ -3496,9 +3312,7 @@ def main_once():
     # manager update (private DM) - counts only, no leaks
     maybe_send_manager_update_dms(cfg, managers_set)
 
-    added_support = ingest_support_requests(cfg, managers_set)
-    if added_support:
-        log_line(f"support_requests added={added_support} file={str(SUPPORT_REQUESTS_PATH)}")
+    # Legacy DM-support removed (support is now public via #support)
 
     # Accuracy/radius defaults
     acc_cfg = cfg.get("accuracy") or {}
@@ -3511,10 +3325,8 @@ def main_once():
 
     trusted_set = load_trusted_set(cfg)
     blacklist_set = load_blacklist_set()
-    # Manager support inbox (DM): #support_anfrage
-    _support_added = process_support_requests(cfg, trusted_set)
-    if _support_added:
-        log_line(f"support_requests added={_support_added}")
+    # Manager support inbox (DM): #support
+    # DM-support removed (public #support only)
 
     cache: Dict[str, Any] = load_json(CACHE_PATH, {})
     pending: List[Dict[str, Any]] = load_json(PENDING_PATH, [])
@@ -3601,7 +3413,7 @@ def main_once():
         # -------------------------
         # OPS hashtags (no image/location required)
         # -------------------------
-        if str(tag).lstrip("#") in ("server_restart", "help", "support", "bugreport"):
+        if str(tag).lstrip("#") in ("server_restart", "help", "support"):
             acc = (st.get("account") or {}) if isinstance(st.get("account"), dict) else {}
             reporter = _acct_base(str(acc.get("acct") or acc.get("username") or ""))
             tag0 = str(tag).lstrip("#")
@@ -3615,9 +3427,7 @@ def main_once():
             # - bugreport: everyone
             if tag0 == "server_restart" and not is_admin:
                 continue
-            if tag0 == "support" and not is_manager:
-                continue
-
+            
             if tag0 == "server_restart":
                 log_line(f"OPS | server_restart | by={reporter} status_id={status_id}")
                 reply_once(
@@ -3635,38 +3445,28 @@ def main_once():
                     "Please follow @HeatmapofFascism for updates.\n\n"
                     "Report (public): ONE photo + location (coords or street+city) + #sticker_report/#graffiti_report.\n"
                     "Optional: #sticker_type / #graffiti_type.\n\n"
-                    "Bug report: use #bugreport.\n\n"
-                    "⭐ Favourite this post to add your report to the map.\n\n"
                     "FCK RACISM. ✊ ALERTA ALERTA."
                 )
 
             elif tag0 == "support":
                 log_line(f"OPS | support | by={reporter} status_id={status_id}")
+
+                # log public support/bug reports (chronological, one-line)
+                try:
+                    SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+                    txt = strip_html(st.get("content", "") or "")
+                    snip = " ".join((txt or "").split())
+                    if len(snip) > 240:
+                        snip = snip[:240].rstrip() + "…"
+                    _append(SUPPORT_LOG_PATH, f"{_now_iso()} | status_id={status_id} | by={reporter} | url={url} | {snip}")
+                except Exception as e:
+                    _append(ERROR_LOG_PATH, f"{_now_iso()} support_log ERROR status_id={status_id} err={e!r}")
                 reply_once(
                     cfg, cache, f"ops_support:{status_id}", str(status_id),
                     "🤖 ℹ️ Support\n\n"
-                    "Please send a *private message* to @HeatmapofFascism with #support_anfrage.\n\n"
+                    "Post publicly with @HeatmapofFascism + #support and a short description of your issue (including bugs).\n\n"
                     "FCK RACISM. ✊ ALERTA ALERTA."
                 )
-
-            elif tag0 == "bugreport":
-                try:
-                    _ensure_support_files()
-                    txt = strip_html(st.get("content", "") or "")
-                    snip = " ".join((txt or "").split())
-                    if len(snip) > 200:
-                        snip = snip[:200].rstrip() + "…"
-                    BUGREPORT_LOG_PATH = SUPPORT_DIR / "bugreports.log"
-                    _append(BUGREPORT_LOG_PATH, f"{_now_iso()} | status_id={status_id} | by={reporter} | url={url} | {snip}")
-                except Exception as e:
-                    _append(ERROR_LOG_PATH, f"{_now_iso()} bugreport_log ERROR status_id={status_id} err={e!r}")
-
-                reply_once(
-                    cfg, cache, f"ops_bugreport:{status_id}", str(status_id),
-                    "🤖 🚀 Bug report logged.\n\n"
-                    "FCK RACISM. ✊ ALERTA ALERTA."
-                )
-
             # always skip further processing for ops hashtags
             continue
 
