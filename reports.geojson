@@ -213,23 +213,26 @@
         "id": "masto-115967049464871568",
         "status": "present",
         "medium": "sticker",
-        "category": "Unknown",
-        "entity_display": "Unknown",
-        "entity_desc": "Unknown (needs verification)",
+        "category": "AFD",
+        "entity_display": "AfD",
+        "entity_desc": "Far-right political party in Germany (German: \"Alternative für Deutschland\").",
         "first_seen": "2026-01-27",
         "last_seen": "2026-01-27",
         "location_text": "53.8878103, 10.645878",
         "lat": 53.8878103,
         "lon": 10.645878,
         "media0": "https://files.mastodon.social/media_attachments/files/115/967/049/366/485/448/original/33edd2a8428159be.png",
-        "needs_verification": true,
-        "category_display": "Unknown",
+        "needs_verification": false,
+        "category_display": "AfD",
         "first_seen_year": 2026,
         "first_seen_month": 1,
         "first_seen_ym": "2026-01",
         "last_seen_year": 2026,
         "last_seen_month": 1,
-        "last_seen_ym": "2026-01"
+        "last_seen_ym": "2026-01",
+        "sticker_type": "AfD",
+        "description": "kind=sticker\ncat=AfD\nstatus=present\nid=masto-115967049464871568",
+        "entity_key": "AFD"
       }
     }
   ]
