@@ -55,6 +55,16 @@ class Pipeline:
         url = st.get("url")
         if not status_id or not url: return
 
+        # 0. Check for update replies (report_again / sticker_removed)
+        if st.get("in_reply_to_id"):
+             # We passed 'tag' but we should check if the tag implies an update action
+             # The tag comes from the loop over configured hashtags.
+             # If tag is report_again or sticker_removed, we try update logic.
+             if "report_again" in tag or "sticker_removed" in tag:
+                 if self._handle_update_reply(st, tag):
+                     # Successfully handled (or ignored silently). Return to avoid processing as new report.
+                     return
+
         item_id = f"masto-{status_id}"
         if item_id in self.reports_ids: return
         for p in self.pending:
@@ -137,6 +147,62 @@ class Pipeline:
         
         self.pending.append(item)
         _reply("pending", build_reply_pending())
+
+    def _handle_update_reply(self, st: Dict[str, Any], tag: str) -> bool:
+        """
+        Handle a reply that signals an update (report_again or sticker_removed).
+        Returns True if we should stop processing handling this status (it was consumed).
+        """
+        parent_id = st.get("in_reply_to_id")
+        if not parent_id: return False
+        
+        # Determine action
+        is_removed = "removed" in tag
+        
+        # Try to find target feature in reports
+        target_item_id = f"masto-{parent_id}"
+        found_feat = None
+        
+        for f in self.reports.get("features", []):
+            if f.get("properties", {}).get("item_id") == target_item_id:
+                found_feat = f
+                break
+                
+        if not found_feat:
+            # Parent not found in reports.
+            # It might be an old report or not yet processed.
+            # We ignore it for now (silent).
+            log_line(f"UPDATE IGNORED | {tag} reply to {parent_id} - parent not in reports", "WARN")
+            return True # Consume it, don't treat as new report
+            
+        # Update logic
+        p = found_feat["properties"]
+        created_at = st.get("created_at") or ""
+        iso_date = created_at[:10] if len(created_at) >= 10 else "2026-01-01"
+        
+        if is_removed:
+            # #sticker_removed = Mark as removed
+            if p.get("status") != "removed":
+                p["status"] = "removed"
+                p["removed_at"] = iso_date
+                p["last_seen"] = iso_date # Update last verified date too?
+                log_line(f"UPDATE | {target_item_id} marked REMOVED by {st['id']}")
+            else:
+                 log_line(f"UPDATE | {target_item_id} already REMOVED")
+        else:
+            # #report_again = Affirm presence
+            p["status"] = "present"
+            p["removed_at"] = None
+            p["last_seen"] = iso_date
+            
+            # Increment seen count? Not currently tracked in schema explicitly but dedup uses it
+            p["seen_count"] = int(p.get("seen_count", 1)) + 1
+            
+            log_line(f"UPDATE | {target_item_id} CONFIRMED present by {st['id']}")
+            
+        # We modified 'reports' in place. Typically the main loop saves it.
+        # We do NOT reply.
+        return True
 
     def _create_pending_item(self, st, item_id, tag, status, error):
         event = "removed" if "removed" in tag else "present"

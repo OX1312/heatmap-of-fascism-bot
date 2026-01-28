@@ -6,7 +6,9 @@
     "graffiti_report": "present",
     "server_restart": "present",
     "help": "present",
-    "support": "present"
+    "support": "present",
+    "report_again": "present",
+    "sticker_removed": "removed"
   },
   "allowed_reviewers": [
     "HeatmapofFascism"
