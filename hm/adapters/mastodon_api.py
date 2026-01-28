@@ -99,6 +99,69 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], cache_key: str, statu
         return True
     
     inst = str(cfg.get("instance_url", "") or "").rstrip("/")
+    
+    # CRITICAL: Comprehensive Reply Validation
+    # NEVER reply unless ALL conditions are met:
+    # 1. Not a self-reply
+    # 2. Parent has @HeatmapofFascism mention
+    # 3. Parent has #sticker_report or #graffiti_report
+    # 4. Not a duplicate (haven't replied to this post already)
+    
+    try:
+        # Get our account ID (cached)
+        my_id = cache.get("_bot_account_id")
+        if not my_id:
+            r_me = api_get(cfg, f"{inst}/api/v1/accounts/verify_credentials")
+            if r_me.status_code == 200:
+                my_id = str(r_me.json().get("id", ""))
+                if my_id:
+                    cache["_bot_account_id"] = my_id
+        
+        # Fetch parent post for validation
+        if status_id:
+            parent_status = fetch_status(cfg, status_id)
+            if not parent_status:
+                # Parent doesn't exist - skip
+                log_line(f"REPLY_BLOCKED | id={status_id} | reason=parent_not_found")
+                cache[cache_key] = int(time.time())
+                return True
+            
+            # 1. Check: Self-Reply Guard
+            parent_account_id = str((parent_status.get("account") or {}).get("id") or "")
+            if my_id and parent_account_id == my_id:
+                log_line(f"REPLY_BLOCKED | id={status_id} | reason=self_reply")
+                cache[cache_key] = int(time.time())
+                return True
+            
+            # 2. Check: Required Mention
+            content = (parent_status.get("content") or "").lower()
+            has_mention = "@heatmapoffascism" in content
+            if not has_mention:
+                log_line(f"REPLY_BLOCKED | id={status_id} | reason=missing_mention")
+                cache[cache_key] = int(time.time())
+                return True
+            
+            # 3. Check: Required Hashtag
+            has_hashtag = "#sticker_report" in content or "#graffiti_report" in content
+            if not has_hashtag:
+                log_line(f"REPLY_BLOCKED | id={status_id} | reason=missing_hashtag")
+                cache[cache_key] = int(time.time())
+                return True
+            
+            # 4. Check: Duplicate Guard
+            # Check if we already replied to this parent (different cache key!)
+            duplicate_check_key = f"replied_to_parent_{status_id}"
+            if cache.get(duplicate_check_key):
+                log_line(f"REPLY_BLOCKED | id={status_id} | reason=already_replied_to_parent")
+                cache[cache_key] = int(time.time())
+                return True
+                
+    except Exception as e:
+        log_line(f"WARN | reply_validation failed | id={status_id} | err={e}")
+        # CRITICAL: On validation error, BLOCK the reply (fail-safe)
+        cache[cache_key] = int(time.time())
+        return True
+    
     try:
         data = {
             "status": text,
@@ -109,6 +172,9 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], cache_key: str, statu
         if r.status_code in (200, 202, 404, 422):
             # 2xx = success, 404 = parent deleted (count as done), 422 = unprocessable (count as done)
             cache[cache_key] = int(time.time())
+            # Also mark this parent as "replied to" to prevent future duplicates
+            duplicate_check_key = f"replied_to_parent_{status_id}"
+            cache[duplicate_check_key] = int(time.time())
             return True
     except Exception as e:
         log_line(f"ERROR | reply_once failed | id={status_id} | err={e}")
