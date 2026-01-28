@@ -1,2 +1,4 @@
 requests>=2.31.0
 certifi>=2023.7.22
+pytest>=7.0.0
+pytest-mock>=3.10.0
