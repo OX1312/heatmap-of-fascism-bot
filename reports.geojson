@@ -25,7 +25,15 @@
         "media0": "https://files.mastodon.social/media_attachments/files/115/951/200/700/979/490/original/64dbe658c21bd8f2.jpg",
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951200894835111",
         "description": "kind=sticker\ncat=FCK NWO FCK GRN\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951200894835111",
-        "name": "sticker FCK NWO FCK GRN 2026-01 present #5111"
+        "name": "sticker FCK NWO FCK GRN 2026-01 present #5111",
+        "needs_verification": true,
+        "category_display": "Unknown",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -41,9 +49,9 @@
         "id": "masto-115951397353469503",
         "status": "present",
         "medium": "sticker",
-        "category": "auf1",
-        "entity_display": "AUF1",
-        "entity_desc": "AUF1 (German original: \"Alternatives Unabhängiges Fernsehen, Kanal 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-de; auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)",
+        "category": "Unknown",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
         "first_seen": "2026-01-24",
         "last_seen": "2026-01-24",
         "location_text": "intersection of Edmund-Siemers-Allee and Grindelallee, Hamburg",
@@ -52,7 +60,15 @@
         "media0": "https://files.mastodon.social/media_attachments/files/115/951/396/926/838/171/original/22e1ea4ba2432527.jpg",
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115951397353469503",
         "description": "kind=sticker\ncat=auf1\nstatus=present\nfirst=2026-01-24\nlast=2026-01-24\nid=masto-115951397353469503",
-        "name": "sticker auf1 2026-01 present #9503"
+        "name": "sticker auf1 2026-01 present #9503",
+        "needs_verification": true,
+        "category_display": "Unknown",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -68,9 +84,9 @@
         "id": "masto-115952968267262297",
         "status": "present",
         "medium": "sticker",
-        "category": "AFD",
-        "entity_display": "AfD",
-        "entity_desc": "Far-right political party in Germany (German: \"Alternative für Deutschland\").",
+        "category": "Unknown",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
         "location_text": "53.851011, 10.702717",
@@ -79,7 +95,15 @@
         "media0": "https://files.mastodon.social/media_attachments/files/115/952/873/465/027/255/original/daf84fc03c9732a3.jpeg",
         "url": "https://mastodon.social/@HeatmapofFascism/115952968267262297",
         "description": "kind=sticker\ncat=AFD\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115952968267262297",
-        "name": "sticker AFD 2026-01 present #2297"
+        "name": "sticker AFD 2026-01 present #2297",
+        "needs_verification": true,
+        "category_display": "Unknown",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -95,9 +119,9 @@
         "id": "masto-115956523282215370",
         "status": "present",
         "medium": "sticker",
-        "category": "1161",
-        "entity_display": "1161",
-        "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
+        "category": "Unknown",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
         "location_text": "52.52222222222222, 13.370555555555557",
@@ -106,7 +130,15 @@
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/522/993/172/962/original/bd6c03cdf3a34631.jpg",
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956523282215370",
         "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956523282215370",
-        "name": "sticker 1161 2026-01 present #5370"
+        "name": "sticker 1161 2026-01 present #5370",
+        "needs_verification": true,
+        "category_display": "Unknown",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -122,9 +154,9 @@
         "id": "masto-115956581847599362",
         "status": "present",
         "medium": "sticker",
-        "category": "1161",
-        "entity_display": "1161",
-        "entity_desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)",
+        "category": "Unknown",
+        "entity_display": "Unknown",
+        "entity_desc": "Unknown (needs verification)",
         "first_seen": "2026-01-25",
         "last_seen": "2026-01-25",
         "location_text": "51.955382, 12.895656",
@@ -133,7 +165,15 @@
         "media0": "https://files.mastodon.social/media_attachments/files/115/956/581/619/406/061/original/288142c0f3025c22.jpg",
         "url": "https://mastodon.social/@Harmonie_oder_Gerechtigkeit161/115956581847599362",
         "description": "kind=sticker\ncat=1161\nstatus=present\nfirst=2026-01-25\nlast=2026-01-25\nid=masto-115956581847599362",
-        "name": "sticker 1161 2026-01 present #9362"
+        "name": "sticker 1161 2026-01 present #9362",
+        "needs_verification": true,
+        "category_display": "Unknown",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     },
     {
@@ -157,7 +197,15 @@
         "location_text": "53.8878103, 10.645878",
         "lat": 53.8878103,
         "lon": 10.645878,
-        "media0": "https://files.mastodon.social/media_attachments/files/115/967/049/366/485/448/original/33edd2a8428159be.png"
+        "media0": "https://files.mastodon.social/media_attachments/files/115/967/049/366/485/448/original/33edd2a8428159be.png",
+        "needs_verification": true,
+        "category_display": "Unknown",
+        "first_seen_year": 2026,
+        "first_seen_month": 1,
+        "first_seen_ym": "2026-01",
+        "last_seen_year": 2026,
+        "last_seen_month": 1,
+        "last_seen_ym": "2026-01"
       }
     }
   ]
