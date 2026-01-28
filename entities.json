@@ -1,7 +1,7 @@
 {
   "AFD": {
     "display": "AfD",
-    "desc": "Far-right political party in Germany (German: \"Alternative für Deutschland\")."
+    "desc": "Far-right political party in Germany (German: \"Alternative f\u00fcr Deutschland\")."
   },
   "auf1": {
     "display": "AUF1",
@@ -11,7 +11,7 @@
       "tagesschau-auf1-desinformation",
       "kommaustria-auf1tv-2023-05-17"
     ],
-    "desc": "AUF1 (German original: \"Alternatives Unabhängiges Fernsehen, Kanal 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-de; auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)"
+    "desc": "AUF1 (German original: \"Alternatives Unabh\u00e4ngiges Fernsehen, Kanal 1\") is an Austrian online media platform / website. Public reference and media sources discuss AUF1 in relation to misinformation/conspiracy narratives and regulatory issues concerning broadcasting without authorization. (Sources: auf1-wiki-de; auf1-wiki-en; tagesschau-auf1-desinformation; kommaustria-auf1tv-2023-05-17)"
   },
   "1161": {
     "display": "1161",
@@ -20,5 +20,9 @@
       "bige-codes-de"
     ],
     "desc": "Numeric code used in far-right contexts meaning \"Anti-Antifascist Action\" (German original: \"Anti-Antifaschistische Aktion\", often shortened \"Anti-Antifa\"), i.e. opposition to antifascist movements. (Source: Wikipedia page \"Rechtsextreme Symbole und Zeichen\".)"
+  },
+  "fck nwo fck grn": {
+    "display": "FCK NWO / GRN",
+    "desc": "Combination of anti-Green Party and New World Order conspiracy slogans. FCK NWO refers to the New World Order conspiracy theory. FCK GRN expression opposition to the Green Party."
   }
 }
