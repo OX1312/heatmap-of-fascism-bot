@@ -19,6 +19,7 @@
     "fallback_m": 50
   },
   "auto_push_reports": true,
+  "auto_update": true,
   "auto_push_remote": "origin",
   "auto_push_branch": "main",
   "test_mode": false,
