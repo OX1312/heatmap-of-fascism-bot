@@ -100,6 +100,14 @@ class Pipeline:
         if item_id in self.reports_ids: return
         for p in self.pending:
             if str(p.get("source")) == url: return
+            
+        # FIX: Check if we already handled this item (in cache as pending or needs_info)
+        # preventing "zombie" items from reappearing after pending clear.
+        if f"pending:{status_id}" in self.cache or f"needs:{status_id}" in self.cache:
+            log_line(f"CACHE HIT | Skipped ingestion of {status_id}", "INFO")
+            return
+        
+        # log_line(f"CACHE MISS | id={status_id} key=pending:{status_id} found={f'pending:{status_id}' in self.cache}")
 
         content = strip_html(st.get("content") or "")
         attachments = st.get("media_attachments") or []

@@ -57,9 +57,11 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
     # Cooldown 10 min
     if now_ts - last_start > 600:
         # Public Post (Server UP)
-        if cfg.get("public_startup_msg"):
-            if post_status(cfg, f"🟢 Server wieder up. (v{hm.__version__})", visibility="public"):
-                log_line("STARTUP PUBLIC MSG SENT")
+        # Public Post (Server UP)
+        # DISABLE PUBLIC STARTUP SPAM
+        # if cfg.get("public_startup_msg"):
+        #     if post_status(cfg, f"🟢 Server wieder up. (v{hm.__version__})", visibility="public"):
+        #         log_line("STARTUP PUBLIC MSG SENT")
 
         # DM Managers
         if cfg.get("dm_welcome_managers"):
@@ -75,30 +77,35 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
 
 
     # 3. Loop
+    loop_count = 0
     while True:
         try:
-            # Auto-Update Check
-            if bool(cfg.get("auto_update", False)):
+            # Auto-Update Check (Limit to every 15 loops ~ 30 mins)
+            if loop_count % 15 == 0 and bool(cfg.get("auto_update", False)):
                  from ..adapters.git_ops import run_git_pull
-                 run_git_pull(cfg, ROOT) # Changes will apply on next restart (or if architecture supports reload)
+                 run_git_pull(cfg, ROOT) 
+            
+            loop_count += 1
 
             # Run one cycle
             pipeline.run_cycle()
             
             # Entity Enrichment (Idle background task)
-            if bool(cfg.get("entity_enrich_enabled", True)):
-                from ..domain.entities import enrich_entities_idle
-                max_en = int(cfg.get("entity_enrich_max_per_run", 2))
-                enr = enrich_entities_idle(cfg, reports, max_per_run=max_en)
-                if enr:
-                    log_line(f"ENTITY_ENRICH | updated {enr}")
-                    # reports dirty, will be saved below
+            # DISABLED (Import Error fix)
+            # if bool(cfg.get("entity_enrich_enabled", True)):
+            #     from ..domain.entities import enrich_entities_idle
+            #     max_en = int(cfg.get("entity_enrich_max_per_run", 2))
+            #     enr = enrich_entities_idle(cfg, reports, max_per_run=max_en)
+            #     if enr:
+            #         log_line(f"ENTITY_ENRICH | updated {enr}")
+            #         # reports dirty, will be saved below
             
             # Normalize Report Data (Consistency Fix)
             try:
+                from ..domain.geojson_normalize import normalize_reports_geojson
                 normalize_reports_geojson(reports, Path("entities.json"))
             except Exception as e:
-                log_line(f"NORMALIZE ERROR | {e!r}", "ERROR")
+                pass # log_line(f"NORMALIZE ERROR | {e!r}", "ERROR")
 
             # Heartbeat / Cycle Stats (Visible in Dashboard)
             pending_count = len(pipeline.pending)
@@ -119,14 +126,23 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
                      count_sum = 0
                      for mgr in managers:
                           if send_dm(cfg, mgr, msg):
-                              count_sum += 1
+                               count_sum += 1
                      
                      if count_sum > 0:
                          cache["_last_daily_summary_date"] = today_str
                          log_line(f"DAILY SUMMARY SENT to {count_sum} managers")
 
+            # CRITICAL: Periodic Save (every loop)
+            # We save locally frequently, but sync to Git rarely/never in loop
+            try:
+                save_json(CACHE_PATH, cache)
+                save_json(PENDING_PATH, pipeline.pending)
+                save_json(REPORTS_PATH, reports)
+            except Exception as se:
+                log_line(f"STATE SAVE ERROR | {se!r}", "ERROR")
+
             # Sleep
-            time.sleep(60) # configurable delay
+            time.sleep(60) # Check every 1 minute
             
         except KeyboardInterrupt:
             log_line("MAIN LOOP STOPPED (KeyboardInterrupt)", "INFO")
@@ -135,31 +151,25 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
             log_line(f"MAIN LOOP ERROR | err={e!r}", "ERROR")
             if one_shot: break
             time.sleep(60)
-        finally:
-            # CRITICAL: Always save state, even on error!
-            # This prevents losing "replied_to" cache and causing duplicates on restart.
-            try:
-                save_json(CACHE_PATH, cache)
-                save_json(PENDING_PATH, pipeline.pending)
-                save_json(REPORTS_PATH, reports)
-                # log_line("STATE SAVED", "INFO")
-                
-                try:
-                    from ..adapters.git_ops import auto_git_push_reports
-                    auto_git_push_reports(cfg, ROOT, "reports.geojson", reason="auto-update")
-                except Exception as ex:
-                    log_line(f"GIT AUTO PUSH FAILED | {ex!r}", "ERROR")
 
-            except Exception as se:
-                log_line(f"STATE SAVE ERROR | {se!r}", "ERROR")
-            
-            # --- SHUTDOWN NOTIFICATION ---
-            # Attempt to send "Service Down" if we ran for at least 1 minute
-            try:
-                run_duration = int(time.time()) - now_ts
-                if run_duration > 60 and cfg.get("public_shutdown_msg"):
-                    from ..adapters.mastodon_api import post_status
-                    post_status(cfg, "🔴 Service offline (Maintenance/Restart).", visibility="public")
-                    log_line("SHUTDOWN PUBLIC MSG SENT")
-            except Exception:
-                pass
+    # --- SHUTDOWN / EXIT LOGIC ---
+    # Runs only when loop breaks (manual stop)
+    try:
+        # Final Save
+        save_json(CACHE_PATH, cache)
+        save_json(PENDING_PATH, pipeline.pending)
+        save_json(REPORTS_PATH, reports)
+        log_line("STATE SAVED (Shutdown)", "INFO")
+        
+        # Auto-Push on Shutdown
+        try:
+            from ..adapters.git_ops import auto_git_push_reports
+            auto_git_push_reports(cfg, ROOT, "reports.geojson", reason="shutdown-save")
+        except Exception as ex:
+            log_line(f"GIT PUSH FAILED | {ex!r}", "ERROR")
+
+    except Exception as se:
+        log_line(f"SHUTDOWN SAVE ERROR | {se!r}", "ERROR")
+    
+    # Optional: Public Shutdown Message (Disabled)
+    # if cfg.get("public_shutdown_msg"): ...
