@@ -5,7 +5,7 @@ from pathlib import Path
 from .models import PipelineResult
 from .constants import ACC_FALLBACK, ACC_GPS
 from ..adapters.mastodon_api import (
-    fetch_timeline, reply_once, is_approved_by_fav
+    fetch_timeline, reply_once, is_approved_by_fav, send_dm
 )
 from ..domain.parse_post import (
     strip_html, parse_location, has_image, parse_type_and_medium, parse_note
@@ -15,7 +15,10 @@ from ..domain.dedup import attempt_dedup
 from ..domain.entities import EntityRegistry
 from ..domain.geojson_normalize import normalize_reports_geojson
 from ..utils.log import log_line
-from ..support.support_replies import build_reply_missing, build_reply_pending, build_needs_info_reply
+from ..support.support_replies import (
+    build_reply_missing, build_reply_pending, build_needs_info_reply,
+    build_reply_removed_confirmation, build_reply_confirmed_confirmation
+)
 from ..support.state import load_trusted_accounts
 
 class Pipeline:
@@ -43,6 +46,24 @@ class Pipeline:
         # 2. Process
         self._process_pending()
 
+    def _has_required_mention(self, st: Dict[str, Any]) -> bool:
+        """Check if the status explicitly mentions the bot."""
+        required = self.cfg.get("required_mentions") or ["HeatmapofFascism"]
+        content = strip_html(st.get("content") or "")
+        
+        # Check text mention
+        if any(m.strip().lstrip("@") in content for m in required):
+            return True
+            
+        # Check mentions array
+        mentions = st.get("mentions") or []
+        for m in mentions:
+            acct = m.get("acct") or m.get("username")
+            if acct and any(req.lower().strip().lstrip("@") in acct.lower() for req in required):
+                return True
+                
+        return False
+
     def _ingest_timeline(self):
         tags = self.cfg.get("hashtags") or ["sticker_report", "sticker_removed"]
         for tag in tags:
@@ -55,7 +76,12 @@ class Pipeline:
         url = st.get("url")
         if not status_id or not url: return
 
-        # 0. Check for update replies (report_again / sticker_removed)
+        # CRITICAL: Strict Mention Check (Rule #1)
+        # The bot must NEVER respond or act unless explicitly mentioned.
+        if not self._has_required_mention(st):
+             return
+
+        # 0. Check for update replies or threaded conversations
         if st.get("in_reply_to_id"):
              # We passed 'tag' but we should check if the tag implies an update action
              # The tag comes from the loop over configured hashtags.
@@ -64,6 +90,11 @@ class Pipeline:
                  if self._handle_update_reply(st, tag):
                      # Successfully handled (or ignored silently). Return to avoid processing as new report.
                      return
+             
+             # CRITICAL: If it is a reply but not a valid update command (or failed update),
+             # we MUST ignore it. We do not want to parse threads as new reports.
+             # This prevents "Missing photo" spam in discussion threads.
+             return
 
         item_id = f"masto-{status_id}"
         if item_id in self.reports_ids: return
@@ -81,17 +112,8 @@ class Pipeline:
              _reply("no_image", "🤖 ⚠️ Missing photo\n\nPlease repost with ONE photo image.\n\nFCK RACISM. ✊ ALERTA ALERTA.")
              return
 
-        # 2. Mention (Placeholder: minimal check)
-        required = self.cfg.get("required_mentions") or ["HeatmapofFascism"]
-        has_mention = any(m.strip().lstrip("@") in content for m in required)
-        # also check mentions list
-        if not has_mention:
-             mentions = st.get("mentions") or []
-             for m in mentions:
-                 acct = m.get("acct") or m.get("username")
-                 if acct and any(req.lower().strip().lstrip("@") in acct.lower() for req in required):
-                     has_mention = True
-                     break
+        # 2. Mention check is now done at the very top.
+
         
         # 3. Location
         coords, q = parse_location(content)
@@ -158,6 +180,19 @@ class Pipeline:
         
         # Determine action
         is_removed = "removed" in tag
+
+        # SECURITY CHECK: Only allow trusted accounts
+        trusted = load_trusted_accounts()
+        account = st.get("account", {})
+        acct = str(account.get("acct") or account.get("username") or "").strip().lower()
+        
+        # Logic matches is_approved_by_fav: check full handle or base handle
+        base = acct.split("@")[0]
+        is_trusted = (base in trusted) or (acct in trusted)
+        
+        if not is_trusted:
+             log_line(f"SECURITY | Unauthorized update attempt by {acct} on {parent_id}", "WARN")
+             return True # Consume it (don't treat as new report) but do nothing.
         
         # Try to find target feature in reports
         target_item_id = f"masto-{parent_id}"
@@ -180,6 +215,8 @@ class Pipeline:
         created_at = st.get("created_at") or ""
         iso_date = created_at[:10] if len(created_at) >= 10 else "2026-01-01"
         
+        reply_text = ""
+
         if is_removed:
             # #sticker_removed = Mark as removed
             if p.get("status") != "removed":
@@ -187,8 +224,10 @@ class Pipeline:
                 p["removed_at"] = iso_date
                 p["last_seen"] = iso_date # Update last verified date too?
                 log_line(f"UPDATE | {target_item_id} marked REMOVED by {st['id']}")
+                reply_text = build_reply_removed_confirmation()
             else:
                  log_line(f"UPDATE | {target_item_id} already REMOVED")
+                 reply_text = build_reply_removed_confirmation()
         else:
             # #report_again = Affirm presence
             p["status"] = "present"
@@ -199,9 +238,16 @@ class Pipeline:
             p["seen_count"] = int(p.get("seen_count", 1)) + 1
             
             log_line(f"UPDATE | {target_item_id} CONFIRMED present by {st['id']}")
+            reply_text = build_reply_confirmed_confirmation()
             
         # We modified 'reports' in place. Typically the main loop saves it.
-        # We do NOT reply.
+        
+        # Send Confirmation Reply
+        if reply_text:
+             # cache key: "update_confirm:{this_status_id}" to avoid double replies
+             reply_key = f"update_confirm:{st['id']}"
+             reply_once(self.cfg, self.cache, reply_key, str(st['id']), reply_text)
+
         return True
 
     def _create_pending_item(self, st, item_id, tag, status, error):

@@ -14,7 +14,7 @@ def _api_headers(cfg: Dict[str, Any]) -> Dict[str, str]:
         "User-Agent": ua,
     }
 
-def api_get(cfg: Dict[str, Any], url: str, params: Dict[str, Any] | None = None) -> requests.Response:
+def api_get(cfg: Dict[str, Any], url: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
     return requests.get(url, headers=_api_headers(cfg), params=params, timeout=MASTODON_TIMEOUT_S)
 
 def api_post(cfg: Dict[str, Any], url: str, data: Dict[str, Any]) -> requests.Response:
@@ -179,3 +179,41 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], cache_key: str, statu
     except Exception as e:
         log_line(f"ERROR | reply_once failed | id={status_id} | err={e}")
     return False
+
+def send_dm(cfg: Dict[str, Any], acct: str, text: str) -> bool:
+    """Send a Direct Message to a specific account."""
+    inst = str(cfg.get("instance_url", "") or "").rstrip("/")
+    if not inst: return False
+
+    # Ensure acct is mentioned to trigger notification even in direct
+    # If acct doesn't start with @, make sure we format it correctly for the text body
+    target_mention = acct if acct.startswith("@") else f"@{acct}"
+    
+    full_text = f"{target_mention} {text}"
+    
+    try:
+        data = {
+            "status": full_text,
+            "visibility": "direct"
+        }
+        r = api_post(cfg, f"{inst}/api/v1/statuses", data)
+        return r.status_code in (200, 202)
+    except Exception as e:
+        log_line(f"ERROR | send_dm failed | to={acct} | err={e}")
+        return False
+
+def post_status(cfg: Dict[str, Any], text: str, visibility: str = "public") -> bool:
+    """Send a general status (public, unlisted, private, direct)."""
+    inst = str(cfg.get("instance_url", "") or "").rstrip("/")
+    if not inst: return False
+
+    try:
+        data = {
+            "status": text,
+            "visibility": visibility
+        }
+        r = api_post(cfg, f"{inst}/api/v1/statuses", data)
+        return r.status_code in (200, 202)
+    except Exception as e:
+        log_line(f"ERROR | post_status failed | val={text[:20]}... | err={e}")
+        return False

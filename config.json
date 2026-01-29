@@ -26,6 +26,8 @@
   "auto_mode": true,
   "dm_welcome_managers": true,
   "dm_manager_updates": true,
+  "public_startup_msg": true,
+  "public_shutdown_msg": true,
   "snap_max_m": 20,
   "loc_conflict_m": 150,
   "entity_enrich_idle": true,

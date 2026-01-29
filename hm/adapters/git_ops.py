@@ -65,3 +65,35 @@ def auto_git_push_reports(cfg: Dict[str, Any], root_dir: pathlib.Path, relpath: 
 
     log_line(f"GIT PUSH OK | reason={reason}")
     return True
+
+def run_git_pull(cfg: Dict[str, Any], root_dir: pathlib.Path) -> bool:
+    """
+    Run git pull to update the bot code.
+    returns True if successful.
+    """
+    remote = str(cfg.get("git_remote", "origin") or "origin")
+    branch = str(cfg.get("git_branch", "main") or "main")
+
+    def run_git(args) -> Tuple[int, str]:
+        try:
+            r = subprocess.run(
+                ["git"] + args,
+                cwd=str(root_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=60,
+            )
+            return r.returncode, r.stdout.strip()
+        except Exception as e:
+            return -1, str(e)
+
+    log_line("GIT PULL | Starting update...")
+    rc, out = run_git(["pull", remote, branch])
+    if rc != 0:
+        log_line(f"ERROR | git_pull failed | rc={rc} | out={out!r}")
+        return False
+    
+    log_line(f"GIT PULL OK | out={out[:100]!r}")
+    return True
+

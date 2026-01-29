@@ -49,9 +49,39 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
 
     pipeline = Pipeline(cfg, cache, pending, reports)
 
+    # --- STARTUP NOTIFICATION ---
+    from ..adapters.mastodon_api import send_dm, post_status
+    last_start = cache.get("_last_startup_msg_ts", 0)
+    now_ts = int(time.time())
+    
+    # Cooldown 10 min
+    if now_ts - last_start > 600:
+        # Public Post (Server UP)
+        if cfg.get("public_startup_msg"):
+            if post_status(cfg, f"🟢 Server wieder up. (v{hm.__version__})", visibility="public"):
+                log_line("STARTUP PUBLIC MSG SENT")
+
+        # DM Managers
+        if cfg.get("dm_welcome_managers"):
+             managers = cfg.get("manager_accounts", [])
+             count_sent = 0
+             for mgr in managers:
+                 if send_dm(cfg, mgr, f"🤖 Heatmap Bot Online v{hm.__version__}. Ready. ✊"):
+                     count_sent += 1
+             if count_sent > 0:
+                 log_line(f"STARTUP DM sent to {count_sent} managers")
+        
+        cache["_last_startup_msg_ts"] = now_ts
+
+
     # 3. Loop
     while True:
         try:
+            # Auto-Update Check
+            if bool(cfg.get("auto_update", False)):
+                 from ..adapters.git_ops import run_git_pull
+                 run_git_pull(cfg, ROOT) # Changes will apply on next restart (or if architecture supports reload)
+
             # Run one cycle
             pipeline.run_cycle()
             
@@ -69,6 +99,31 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
                 normalize_reports_geojson(reports, Path("entities.json"))
             except Exception as e:
                 log_line(f"NORMALIZE ERROR | {e!r}", "ERROR")
+
+            # Heartbeat / Cycle Stats (Visible in Dashboard)
+            pending_count = len(pipeline.pending)
+            reports_count = len(reports.get("features", []))
+            log_line(f"CHECKS | pending={pending_count} published={reports_count}", "INFO")
+
+            # --- MANAGER DAILY SUMMARY ---
+            if cfg.get("manager_daily_summary"):
+                from ..adapters.mastodon_api import send_dm
+                hour = int(cfg.get("manager_daily_summary_hour_local", 9))
+                today_str = now_berlin().strftime("%Y-%m-%d")
+                last_summary = cache.get("_last_daily_summary_date", "")
+                
+                # If new day and past the target hour
+                if today_str != last_summary and now_berlin().hour >= hour:
+                     managers = cfg.get("manager_accounts", [])
+                     msg = f"📊 Daily Summary ({today_str})\n\nReports: {reports_count}\nPending: {pending_count}\n\nFCK RACISM. ✊"
+                     count_sum = 0
+                     for mgr in managers:
+                          if send_dm(cfg, mgr, msg):
+                              count_sum += 1
+                     
+                     if count_sum > 0:
+                         cache["_last_daily_summary_date"] = today_str
+                         log_line(f"DAILY SUMMARY SENT to {count_sum} managers")
 
             # Sleep
             time.sleep(60) # configurable delay
@@ -89,7 +144,6 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
                 save_json(REPORTS_PATH, reports)
                 # log_line("STATE SAVED", "INFO")
                 
-                # Auto Push to GitHub
                 try:
                     from ..adapters.git_ops import auto_git_push_reports
                     auto_git_push_reports(cfg, ROOT, "reports.geojson", reason="auto-update")
@@ -98,3 +152,14 @@ def run_loop(cfg: Dict[str, Any], one_shot: bool = False) -> None:
 
             except Exception as se:
                 log_line(f"STATE SAVE ERROR | {se!r}", "ERROR")
+            
+            # --- SHUTDOWN NOTIFICATION ---
+            # Attempt to send "Service Down" if we ran for at least 1 minute
+            try:
+                run_duration = int(time.time()) - now_ts
+                if run_duration > 60 and cfg.get("public_shutdown_msg"):
+                    from ..adapters.mastodon_api import post_status
+                    post_status(cfg, "🔴 Service offline (Maintenance/Restart).", visibility="public")
+                    log_line("SHUTDOWN PUBLIC MSG SENT")
+            except Exception:
+                pass
