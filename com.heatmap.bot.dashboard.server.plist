@@ -9,15 +9,15 @@
         <string>/bin/bash</string>
         <!-- Assuming the path on Pluto is ~/heatmap-of-fascism-bot -->
         <!-- We use a helper script to find the dir dynamically if possible, or hardcode typical structure -->
-        <string>/Users/oscar/heatmap-of-fascism-bot/start_dashboard_server.sh</string>
+        <string>/Users/oscar_berngruber/heatmap-of-fascism-bot/start_dashboard_server.sh</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>WorkingDirectory</key>
-    <string>/Users/oscar/heatmap-of-fascism-bot</string>
+    <string>/Users/oscar_berngruber/heatmap-of-fascism-bot</string>
     <key>StandardErrorPath</key>
-    <string>/Users/oscar/heatmap-of-fascism-bot/logs/dashboard_server_launch.err</string>
+    <string>/Users/oscar_berngruber/heatmap-of-fascism-bot/logs/dashboard_server_launch.err</string>
     <key>StandardOutPath</key>
-    <string>/Users/oscar/heatmap-of-fascism-bot/logs/dashboard_server_launch.log</string>
+    <string>/Users/oscar_berngruber/heatmap-of-fascism-bot/logs/dashboard_server_launch.log</string>
 </dict>
 </plist>
