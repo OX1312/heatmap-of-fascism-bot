@@ -13,7 +13,34 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 LOG_DIR = ROOT / "logs"
 PENDING_PATH = ROOT / "pending.json"
 REPORTS_PATH = ROOT / "reports.geojson"
+STATS_PATH = ROOT / "stats.jsonl"
 AUDIT_DIR = ROOT / "support"
+MUTE_FLAG = ROOT / ".bot_muted"
+
+# 8-bit Robot ASCII Art
+ROBOT_ON = [
+    "    💡    ",
+    "   ┌───┐  ",
+    "   │◉ ◉│  ",
+    "   │ ▽ │  ",
+    "   └─┬─┘  ",
+    "  ┌─┴─┬─┐ ",
+    "  │ ◊ ◊ │ ",
+    "  └┬───┬┘ ",
+    "   │   │  ",
+]
+
+ROBOT_OFF = [
+    "    ○     ",
+    "   ┌───┐  ",
+    "   │- -│  ",
+    "   │ _ │  ",
+    "   └─┬─┘  ",
+    "  ┌─┴─┬─┐ ",
+    "  │ · · │ ",
+    "  └┬───┬┘ ",
+    "   │   │  ",
+]
 
 def load_json_safe(path: Path, default):
     try:
@@ -74,6 +101,45 @@ def format_number(n):
     if n >= 1000:
         return f"{n/1000:.1f}k"
     return str(n)
+
+def get_stats_table():
+    # Read stats.jsonl
+    # Format: {"ts": 123, "event": "type", "id": "..."}
+    now = time.time()
+    day_start = now - (now % 86400) # Simple midnight (UTC approx, acceptable)
+    week_start = now - (7 * 86400)
+    month_start = now - (30 * 86400)
+    
+    counts = {
+        "request": [0, 0, 0, 0],   # Day, Week, Month, Total
+        "pending": [0, 0, 0, 0],
+        "published": [0, 0, 0, 0]
+    }
+    
+    try:
+        if STATS_PATH.exists():
+            with STATS_PATH.open("r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                        ts = d.get("ts", 0)
+                        evt = d.get("event")
+                        if evt in counts:
+                            # Total
+                            counts[evt][3] += 1
+                            # Intervals
+                            if ts >= month_start:
+                                counts[evt][2] += 1
+                                if ts >= week_start:
+                                    counts[evt][1] += 1
+                                    if ts >= day_start:
+                                        counts[evt][0] += 1
+                    except:
+                        pass
+    except Exception:
+        pass
+        
+    return counts
 
 def get_bot_status():
     date_str = datetime.now().strftime("%Y-%m-%d")
@@ -159,23 +225,40 @@ def main(stdscr):
         load_txt = f"Load: {load1:.2f}"
         
         box_h = 6 
-        draw_box(stdscr, 2, 1, box_h, w-2, "System Status")
+        draw_box(stdscr, 2, 1, box_h, w//2-2, "System Status")
         
-        # Row 1: Bot Status
+        # --- ROBOT CONTROL ---
+        is_muted = MUTE_FLAG.exists()
+        robot_art = ROBOT_OFF if is_muted else ROBOT_ON
+        robot_box_x = w//2 + 1
+        robot_box_w = w//2 - 3
+        draw_box(stdscr, 2, robot_box_x, box_h, robot_box_w, "Bot Control [M]")
+        
+        # Draw robot
+        robot_start_x = robot_box_x + 2
+        for idx, line in enumerate(robot_art[:4]):
+            try:
+                color = curses.color_pair(2) if not is_muted else curses.color_pair(1)
+                stdscr.addstr(3 + idx, robot_start_x, line, color)
+            except curses.error:
+                pass
+        
+        # Status text
+        status = "SENDING" if not is_muted else "MUTED"
+        status_color = curses.color_pair(2) if not is_muted else curses.color_pair(1)
+        try:
+            stdscr.addstr(4, robot_start_x + 14, status, status_color | curses.A_BOLD)
+            hint = "Press [M] to toggle"
+            stdscr.addstr(5, robot_start_x + 12, hint, curses.A_DIM)
+        except curses.error:
+            pass
+        
         stdscr.addstr(3, 3, f"Bot Status: ", curses.A_BOLD)
         stdscr.addstr(status_txt, status_color)
         stdscr.addstr(3, w - len(load_txt) - 5, load_txt)
         
-        # Row 2: GitHub / Mastodon
-        # GitHub: YES 🟢   Mastodon: YES 🟢
-        # Calculate positions
-        # "GitHub: " len=8. "YES 🟢" len=6.
         gh_label = "GitHub Server: "
         ms_label = "Mastodon Server: "
-        
-        # Color parsing is tricky with return strings. 
-        # I'll just print specific parts. 
-        # For simplicity, check string content for color
         
         def get_col(s):
             if "🟢" in s: return curses.color_pair(2)
@@ -190,38 +273,63 @@ def main(stdscr):
         stdscr.addstr(masto_st, get_col(masto_st))
         
 
-        # --- DATABASE ---
+        # --- STATISTICS TABLE ---
+        # "Mastodon Statistics"
+        # Columns: Metric | Day | Week | Month | Total
+        
+        stats = get_stats_table()
+        
+        # Also need CURRENT state counts
         pending_list = load_json_safe(PENDING_PATH, [])
         reports = load_json_safe(REPORTS_PATH, {"features": []})
-        published_count = len(reports.get("features", []))
-        
-        pending_fav_count = 0
-        requests_count = 0
-        for p in pending_list:
-            if p.get("status", "").upper() == "PENDING":
-                pending_fav_count += 1
-            else:
-                requests_count += 1
-        
-        stats_h = 7
-        draw_box(stdscr, 2 + box_h, 1, stats_h, w-2, "Mastodon & Database")
-        
-        # Helper to draw aligned row
-        def draw_row(row_idx, label, count):
-            y_pos = 2 + box_h + 1 + row_idx
-            # Label
-            stdscr.addstr(y_pos, 3, f"{label}:", curses.A_BOLD)
-            # Value (Aligned to column 25?)
-            val_str = format_number(count)
-            # " 1234" (4 digits space + k support)
-            # Actually user wants "untereinander"
-            # Let's fix position e.g. x=20
-            # Right align 4 chars?
-            stdscr.addstr(y_pos, 22, f"{val_str:>5}")
+        current_pending = sum(1 for p in pending_list if p.get("status", "").upper() == "PENDING")
+        current_requests = len(pending_list) - current_pending
 
-        draw_row(0, "Requests", requests_count)
-        draw_row(1, "Pending", pending_fav_count)
-        draw_row(2, "Published", published_count)
+        # FIX: Override Total Published (Stats) with actual DB count
+        # Because stats.jsonl only has new events, but Total should show full history.
+        stats["published"][3] = current_published
+
+        # Table Layout
+        col_w = 9
+        # Metric(12) | Day(9) | Week(9) | Month(9) | Total(9)
+        # Total Width = ~50
+        
+        stats_h = 9
+        draw_box(stdscr, 2 + box_h, 1, stats_h, w-2, "Activity Statistics")
+        
+        base_y = 2 + box_h + 1
+        
+        # Headings
+        # Metric      Day      Week     Month    Total
+        head_fmt = "{:<12} {:>8} {:>8} {:>8} {:>8}"
+        stdscr.addstr(base_y, 3, head_fmt.format("METRIC", "DAY", "WEEK", "MONTH", "TOTAL"), curses.A_BOLD | curses.A_UNDERLINE)
+        
+        # Rows
+        # Requests
+        row_y = base_y + 2
+        req_vals = stats["request"]
+        stdscr.addstr(row_y, 3, head_fmt.format("Requests", 
+            format_number(req_vals[0]), format_number(req_vals[1]), format_number(req_vals[2]), format_number(req_vals[3])))
+            
+        # New Pending
+        row_y += 1
+        pen_vals = stats["pending"]
+        stdscr.addstr(row_y, 3, head_fmt.format("New Pending", 
+            format_number(pen_vals[0]), format_number(pen_vals[1]), format_number(pen_vals[2]), format_number(pen_vals[3])))
+
+        # Published
+        row_y += 1
+        pub_vals = stats["published"]
+        stdscr.addstr(row_y, 3, head_fmt.format("Published", 
+            format_number(pub_vals[0]), format_number(pub_vals[1]), format_number(pub_vals[2]), format_number(pub_vals[3])))
+
+        # Divider
+        stdscr.hline(row_y + 1, 3, curses.ACS_HLINE, 50)
+        
+        # Active State
+        # Current: Pending 0 | Published 6
+        state_y = row_y + 2
+        stdscr.addstr(state_y, 3, f"ACTIVE STATE:  Pending: {current_pending}   Published: {current_published}", curses.A_BOLD)
 
 
         # --- LOGS ---
@@ -243,6 +351,12 @@ def main(stdscr):
         try:
             k = stdscr.getch()
             if k == ord('q'): break
+            elif k == ord('m') or k == ord('M'):
+                # Toggle mute
+                if MUTE_FLAG.exists():
+                    MUTE_FLAG.unlink()
+                else:
+                    MUTE_FLAG.touch()
         except Exception: pass
         time.sleep(2)
 
