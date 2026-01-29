@@ -284,6 +284,7 @@ def main(stdscr):
         reports = load_json_safe(REPORTS_PATH, {"features": []})
         current_pending = sum(1 for p in pending_list if p.get("status", "").upper() == "PENDING")
         current_requests = len(pending_list) - current_pending
+        current_published = len(reports.get("features", []))
 
         # FIX: Override Total Published (Stats) with actual DB count
         # Because stats.jsonl only has new events, but Total should show full history.
