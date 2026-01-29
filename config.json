@@ -1,5 +1,6 @@
 {
   "instance_url": "https://mastodon.social",
+  "ssh_user": "oscar_berngruber",
   "user_agent": "HeatmapOfFascismBot/1.0.1",
   "hashtags": {
     "sticker_report": "present",
