@@ -15,32 +15,10 @@ PENDING_PATH = ROOT / "pending.json"
 REPORTS_PATH = ROOT / "reports.geojson"
 STATS_PATH = ROOT / "stats.jsonl"
 AUDIT_DIR = ROOT / "support"
-MUTE_FLAG = ROOT / ".bot_muted"
 
-# 8-bit Robot ASCII Art
-ROBOT_ON = [
-    "    💡    ",
-    "   ┌───┐  ",
-    "   │◉ ◉│  ",
-    "   │ ▽ │  ",
-    "   └─┬─┘  ",
-    "  ┌─┴─┬─┐ ",
-    "  │ ◊ ◊ │ ",
-    "  └┬───┬┘ ",
-    "   │   │  ",
-]
-
-ROBOT_OFF = [
-    "    ○     ",
-    "   ┌───┐  ",
-    "   │- -│  ",
-    "   │ _ │  ",
-    "   └─┬─┘  ",
-    "  ┌─┴─┬─┐ ",
-    "  │ · · │ ",
-    "  └┬───┬┘ ",
-    "   │   │  ",
-]
+# Separate mute flags for different message types
+MUTE_REPORTS = ROOT / ".mute_reports"   # For #*_reports hashtag messages
+MUTE_OTHER = ROOT / ".mute_other"       # For all other messages
 
 def load_json_safe(path: Path, default):
     try:
@@ -227,31 +205,33 @@ def main(stdscr):
         box_h = 6 
         draw_box(stdscr, 2, 1, box_h, w//2-2, "System Status")
         
-        # --- ROBOT CONTROL ---
-        is_muted = MUTE_FLAG.exists()
-        robot_art = ROBOT_OFF if is_muted else ROBOT_ON
-        robot_box_x = w//2 + 1
-        robot_box_w = w//2 - 3
-        draw_box(stdscr, 2, robot_box_x, box_h, robot_box_w, "Bot Control [M]")
+        # --- MESSAGE CONTROLS ---
+        reports_muted = MUTE_REPORTS.exists()
+        other_muted = MUTE_OTHER.exists()
         
-        # Draw robot
-        robot_start_x = robot_box_x + 2
-        for idx, line in enumerate(robot_art[:4]):
+        ctrl_box_x = w//2 + 1
+        ctrl_box_w = w//2 - 3
+        draw_box(stdscr, 2, ctrl_box_x, box_h, ctrl_box_w, "Message Controls")
+        
+        # Toggle switch helper
+        def draw_switch(y, x, label, is_on, key):
+            switch_on = "[■■■■●    ]"
+            switch_off = "[    ●■■■■]"
+            switch = switch_on if is_on else switch_off
+            color = curses.color_pair(2) if is_on else curses.color_pair(1)
+            status = "ON " if is_on else "OFF"
             try:
-                color = curses.color_pair(2) if not is_muted else curses.color_pair(1)
-                stdscr.addstr(3 + idx, robot_start_x, line, color)
+                stdscr.addstr(y, x, f"[{key}] ", curses.A_BOLD)
+                stdscr.addstr(f"{label}: ")
+                stdscr.addstr(switch, color | curses.A_BOLD)
+                stdscr.addstr(f" {status}", color | curses.A_BOLD)
             except curses.error:
                 pass
         
-        # Status text
-        status = "SENDING" if not is_muted else "MUTED"
-        status_color = curses.color_pair(2) if not is_muted else curses.color_pair(1)
-        try:
-            stdscr.addstr(4, robot_start_x + 14, status, status_color | curses.A_BOLD)
-            hint = "Press [M] to toggle"
-            stdscr.addstr(5, robot_start_x + 12, hint, curses.A_DIM)
-        except curses.error:
-            pass
+        # Draw switches
+        switch_x = ctrl_box_x + 2
+        draw_switch(3, switch_x, "#*_reports", not reports_muted, "R")
+        draw_switch(5, switch_x, "Other msgs", not other_muted, "O")
         
         stdscr.addstr(3, 3, f"Bot Status: ", curses.A_BOLD)
         stdscr.addstr(status_txt, status_color)
@@ -352,12 +332,18 @@ def main(stdscr):
         try:
             k = stdscr.getch()
             if k == ord('q'): break
-            elif k == ord('m') or k == ord('M'):
-                # Toggle mute
-                if MUTE_FLAG.exists():
-                    MUTE_FLAG.unlink()
+            elif k == ord('r') or k == ord('R'):
+                # Toggle reports mute
+                if MUTE_REPORTS.exists():
+                    MUTE_REPORTS.unlink()
                 else:
-                    MUTE_FLAG.touch()
+                    MUTE_REPORTS.touch()
+            elif k == ord('o') or k == ord('O'):
+                # Toggle other messages mute
+                if MUTE_OTHER.exists():
+                    MUTE_OTHER.unlink()
+                else:
+                    MUTE_OTHER.touch()
         except Exception: pass
         time.sleep(2)
 

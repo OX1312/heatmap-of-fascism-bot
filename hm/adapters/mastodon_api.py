@@ -6,12 +6,20 @@ from ..utils.log import log_line
 
 MASTODON_TIMEOUT_S = 25
 
-# Mute flag - when present, bot won't send any messages
-_MUTE_FLAG = Path(__file__).resolve().parent.parent.parent / ".bot_muted"
+# Separate mute flags for different message types
+_ROOT = Path(__file__).resolve().parent.parent.parent
+_MUTE_REPORTS = _ROOT / ".mute_reports"   # For #*_reports hashtag replies
+_MUTE_OTHER = _ROOT / ".mute_other"       # For DMs and other posts
 
-def is_muted() -> bool:
-    """Check if bot is muted (robot lightbulb off)."""
-    return _MUTE_FLAG.exists()
+def is_muted(msg_type: str = "other") -> bool:
+    """Check if message type is muted.
+    
+    Args:
+        msg_type: "reports" for #*_reports replies, "other" for everything else
+    """
+    if msg_type == "reports":
+        return _MUTE_REPORTS.exists()
+    return _MUTE_OTHER.exists()
 
 def _api_headers(cfg: Dict[str, Any]) -> Dict[str, str]:
     token = str(cfg.get("access_token", "") or "")
@@ -147,8 +155,8 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], cache_key: str, statu
         cache[cache_key] = int(time.time())
         return True
     
-    if is_muted():
-        log_line(f"MUTED | reply skipped | id={status_id}")
+    if is_muted("reports"):
+        log_line(f"MUTED_REPORTS | reply skipped | id={status_id}")
         cache[cache_key] = int(time.time())
         return True
     try:
@@ -164,8 +172,8 @@ def reply_once(cfg: Dict[str, Any], cache: Dict[str, Any], cache_key: str, statu
     return False
 
 def send_dm(cfg: Dict[str, Any], acct: str, text: str) -> bool:
-    if is_muted():
-        log_line(f"MUTED | DM skipped | to={acct}")
+    if is_muted("other"):
+        log_line(f"MUTED_OTHER | DM skipped | to={acct}")
         return True
     inst = str(cfg.get("instance_url", "") or "").rstrip("/")
     if not inst: return False
@@ -180,8 +188,8 @@ def send_dm(cfg: Dict[str, Any], acct: str, text: str) -> bool:
         return False
 
 def post_status(cfg: Dict[str, Any], text: str, visibility: str = "public") -> bool:
-    if is_muted():
-        log_line(f"MUTED | post skipped | text={text[:30]}...")
+    if is_muted("other"):
+        log_line(f"MUTED_OTHER | post skipped | text={text[:30]}...")
         return True
     inst = str(cfg.get("instance_url", "") or "").rstrip("/")
     if not inst: return False
